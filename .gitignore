@@ -1,0 +1,9 @@
+/target
+/data
+web/node_modules
+web/dist
+android/.gradle
+android/build
+android/app/build
+android/app/src/main/assets
+android/local.properties

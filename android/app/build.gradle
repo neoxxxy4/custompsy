@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.provodnik.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.provodnik.app"
+        minSdk 26
+        targetSdk 34
+        versionCode 9
+        versionName "1.8"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    // Собранный фронт (web/dist) копируется в assets при сборке — не храним в git
+    sourceSets {
+        main.assets.srcDir "$buildDir/web-assets"
+    }
+}
+
+tasks.register('syncWebAssets', Copy) {
+    doFirst { delete "$buildDir/web-assets" }
+    from "$rootDir/../web/dist"
+    into "$buildDir/web-assets"
+}
+
+preBuild.dependsOn syncWebAssets
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+}
