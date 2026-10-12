@@ -72,15 +72,15 @@ export type Diary = Record<string, DiaryEntry>
 
 export interface Goal { text: string; done: boolean }
 
-// простая задача дня (ключ aod3-tasks-<date>)
+// простая задача дня (ключ aod4-tasks-<date>)
 export interface Task { id: string; text: string; done: boolean }
 
-// редактируемый блок расписания дня (ключ aod3-schedblocks-<date>)
+// редактируемый блок расписания дня (ключ aod4-schedblocks-<date>)
 export interface SchedBlock { id: string; time: string; what: string; color?: string; done: boolean }
 
 // ─── кастомные блоки экрана «Сегодня» ───
 
-// описание блока (ключ aod3-today-blocks-<date>, у каждого дня свой набор; порядок массива = порядок на экране)
+// описание блока (ключ aod4-today-blocks-<date>, у каждого дня свой набор; порядок массива = порядок на экране)
 export interface BlockDef {
   id: string
   title: string
@@ -112,10 +112,10 @@ export interface BlockList {
   lists?: BlockList[]  // вложенные подблоки: внутри блока, подблока или чек-листа
 }
 
-// данные дня по блокам (ключ aod3-today-data-<date>): blockId → пункты и под-списки
+// данные дня по блокам (ключ aod4-today-data-<date>): blockId → пункты и под-списки
 export type TodayData = Record<string, { items: BlockItem[]; lists: BlockList[] }>
 
-// независимая запись «Списков» в «Записях» (ключ aod3-listrecs)
+// независимая запись «Списков» в «Записях» (ключ aod4-listrecs)
 export interface ListRecord {
   id: string
   kind: 'checklist' | 'list'
@@ -197,7 +197,7 @@ export const toggleNestedListItem = (ls: BlockList[], listId: string, itemId: st
   )
 
 // стартовое расписание дня: шаблон дня недели из «Планирования»
-// + перенос отметок из legacy-ключа aod3-sched-<date> (индексы wdName-i)
+// + перенос отметок из legacy-ключа aod4-sched-<date> (индексы wdName-i)
 export const seedSchedBlocks = (_dateKey: string, _wdName: string): SchedBlock[] => []
 
 // дефолтные блоки экрана «Сегодня»
@@ -218,10 +218,10 @@ export const normalizeDef = (d: BlockDef): BlockDef => ({
   },
 })
 
-// блоки конкретного дня (ключ aod3-today-blocks-<date>): при первом открытии
+// блоки конкретного дня (ключ aod4-today-blocks-<date>): при первом открытии
 // берём legacy-глобальный список, дальше каждый день живёт со своими блоками
 export const seedDayBlocks = (): BlockDef[] => {
-  const legacy = readLegacy<BlockDef[]>('aod3-today-blocks')
+  const legacy = readLegacy<BlockDef[]>('aod4-today-blocks')
   return legacy && legacy.length ? legacy.map(normalizeDef) : seedBlockDefs()
 }
 
@@ -238,13 +238,13 @@ const readLegacy = <T,>(key: string): T | null => {
 }
 
 // данные дня для новой модели блоков: при первом открытии даты
-// (ключа aod3-today-data-<date> ещё нет) мигрируем legacy-ключи;
+// (ключа aod4-today-data-<date> ещё нет) мигрируем legacy-ключи;
 // blank — для readOnly-дней (вчера): без дефолтов, только то, что было в legacy
 export const seedTodayData = (dateKey: string, wdName: string, blank = false): TodayData => {
-  const goals = readLegacy<Goal[]>(`aod3-goals-${dateKey}`) ?? (blank ? [] : EMPTY_GOALS)
-  const sched = readLegacy<SchedBlock[]>(`aod3-schedblocks-${dateKey}`) ?? (blank ? [] : seedSchedBlocks(dateKey, wdName))
-  const day = readLegacy<DayInstance[]>(`aod3-day-${dateKey}`) ?? (blank ? [] : seedDay())
-  const tasks = readLegacy<Task[]>(`aod3-tasks-${dateKey}`) ?? []
+  const goals = readLegacy<Goal[]>(`aod4-goals-${dateKey}`) ?? (blank ? [] : EMPTY_GOALS)
+  const sched = readLegacy<SchedBlock[]>(`aod4-schedblocks-${dateKey}`) ?? (blank ? [] : seedSchedBlocks(dateKey, wdName))
+  const day = readLegacy<DayInstance[]>(`aod4-day-${dateKey}`) ?? (blank ? [] : seedDay())
+  const tasks = readLegacy<Task[]>(`aod4-tasks-${dateKey}`) ?? []
   return {
     goals: {
       items: goals.map((g) => ({ id: uid(), text: g.text, done: g.done })),

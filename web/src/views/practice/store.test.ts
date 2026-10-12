@@ -53,15 +53,15 @@ describe('seedTodayData', () => {
   })
 
   it('мигрирует legacy-ключи дня', () => {
-    mem.set(`aod3-goals-${dk}`, JSON.stringify([{ text: 'Пробежка', done: true }]))
-    mem.set(`aod3-schedblocks-${dk}`, JSON.stringify([{ id: 's1', time: '09:00', what: 'Звонок', done: false }]))
+    mem.set(`aod4-goals-${dk}`, JSON.stringify([{ text: 'Пробежка', done: true }]))
+    mem.set(`aod4-schedblocks-${dk}`, JSON.stringify([{ id: 's1', time: '09:00', what: 'Звонок', done: false }]))
     mem.set(
-      `aod3-day-${dk}`,
+      `aod4-day-${dk}`,
       JSON.stringify([
         { iid: 'd1', templateId: 't1', title: 'Утро', time: '', color: '#fff', collapsed: false, items: [{ id: 'i1', text: 'Вода', done: true }] },
       ])
     )
-    mem.set(`aod3-tasks-${dk}`, JSON.stringify([{ id: 't1', text: 'Почта', done: false }]))
+    mem.set(`aod4-tasks-${dk}`, JSON.stringify([{ id: 't1', text: 'Почта', done: false }]))
 
     const d = seedTodayData(dk, 'Вт')
     expect(d.goals.items).toMatchObject([{ text: 'Пробежка', done: true }])
@@ -73,7 +73,7 @@ describe('seedTodayData', () => {
   })
 
   it('битый legacy-ключ не роняет сид', () => {
-    mem.set(`aod3-goals-${dk}`, '{битый json')
+    mem.set(`aod4-goals-${dk}`, '{битый json')
     const d = seedTodayData(dk, 'Вт')
     expect(d.goals.items).toEqual([])
   })

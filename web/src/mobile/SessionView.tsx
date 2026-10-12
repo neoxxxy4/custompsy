@@ -38,8 +38,8 @@ const readLS = <T,>(key: string): T | null => {
 }
 
 export default function SessionView() {
-  const [sessions, setSessions] = useLS<SessionRec[]>('aod3-sessions', [])
-  const [weekTasks, setWeekTasks] = useLS<WeekTask[]>('aod3-week-tasks', [])
+  const [sessions, setSessions] = useLS<SessionRec[]>('aod4-sessions', [])
+  const [weekTasks, setWeekTasks] = useLS<WeekTask[]>('aod4-week-tasks', [])
   const [taskDraft, setTaskDraft] = useState('')
   const [showNew, setShowNew] = useState(false)
   const [newSummary, setNewSummary] = useState('')
@@ -72,11 +72,11 @@ export default function SessionView() {
       const d = new Date(today)
       d.setDate(d.getDate() + i)
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      const stored = readLS<TodayData>(`aod3-today-data-${key}`)
+      const stored = readLS<TodayData>(`aod4-today-data-${key}`)
       const data = stored || seedTodayData(key, WD[d.getDay()])
       const newItems: BlockItem[] = pending.map((t) => ({ id: uid(), text: t.text, done: false }))
       const next: TodayData = { ...data, tasks: { ...data.tasks, items: [...data.tasks.items, ...newItems] } }
-      localStorage.setItem(`aod3-today-data-${key}`, JSON.stringify(next))
+      localStorage.setItem(`aod4-today-data-${key}`, JSON.stringify(next))
     }
     setWeekTasks((ts) => ts.map((t) => ({ ...t, done: true })))
   }

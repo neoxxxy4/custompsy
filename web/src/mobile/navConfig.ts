@@ -99,7 +99,7 @@ export const DEFAULT_TABS: AppTab[] = [
   },
 ]
 
-const STORAGE_KEY = 'aod3-app-tabs'
+const STORAGE_KEY = 'aod4-app-tabs'
 
 export const validToolIds = new Set<MTab>(Object.keys(TOOL_META) as MTab[])
 

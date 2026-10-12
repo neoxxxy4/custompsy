@@ -156,12 +156,12 @@ export default function TodayView() {
   const readOnly = offset < 0
 
   // блоки — отдельные сущности каждого дня: добавленный блок живёт только в этой дате
-  const [defs, setDefs] = useLS<BlockDef[]>(`aod3-today-blocks-${dateKey}`, seedDayBlocks())
+  const [defs, setDefs] = useLS<BlockDef[]>(`aod4-today-blocks-${dateKey}`, seedDayBlocks())
   // вид экрана «Прогресс»: список блоков / доска с плашками (как папки в Telegram)
-  const [viewMode, setViewMode] = useLS<'list' | 'board'>('aod3-today-viewmode', 'list')
-  const [listrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
+  const [viewMode, setViewMode] = useLS<'list' | 'board'>('aod4-today-viewmode', 'list')
+  const [listrecs] = useLS<ListRecord[]>('aod4-listrecs', [])
   // readOnly-день (вчера): мигрируем только то, что было в legacy, без дефолтов
-  const [data, setData] = useLS<TodayData>(`aod3-today-data-${dateKey}`, seedTodayData(dateKey, wdName, readOnly))
+  const [data, setData] = useLS<TodayData>(`aod4-today-data-${dateKey}`, seedTodayData(dateKey, wdName, readOnly))
 
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [openLists, setOpenLists] = useState<string[]>([])

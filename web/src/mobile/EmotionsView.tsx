@@ -81,10 +81,10 @@ const shiftMonth = (iso: string, months: number) => {
 export default function EmotionsView() {
   const [topTab, setTopTab] = useState<'diary' | 'therapy' | 'overlay'>('diary')
   const [sheet, setSheet] = useState<SheetState>({ open: false, mode: 'create' })
-  const [notes, setNotes] = useLS<Note[]>('aod3-notes', [])
-  const [listrecs, setListrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
-  const [diary, setDiary] = useLS<Diary>('aod3-diary', {})
-  const [period, setPeriod] = useLS<EmotionPeriod>('aod3-emotions-period', { view: 'day', date: todayIso() })
+  const [notes, setNotes] = useLS<Note[]>('aod4-notes', [])
+  const [listrecs, setListrecs] = useLS<ListRecord[]>('aod4-listrecs', [])
+  const [diary, setDiary] = useLS<Diary>('aod4-diary', {})
+  const [period, setPeriod] = useLS<EmotionPeriod>('aod4-emotions-period', { view: 'day', date: todayIso() })
 
   const allTags = useMemo(() => allEmotionTags(notes, listrecs, diary), [notes, listrecs, diary])
   const recordsWithEmotions = useMemo(() => emotionRecords(notes, listrecs, diary), [notes, listrecs, diary])
@@ -915,9 +915,9 @@ function LevelBadge({ level }: { level: 1 | 2 | 3 }) {
 }
 
 function EmotionTherapyTab() {
-  const [notes] = useLS<Note[]>('aod3-notes', [])
-  const [listrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
-  const [diary] = useLS<Diary>('aod3-diary', {})
+  const [notes] = useLS<Note[]>('aod4-notes', [])
+  const [listrecs] = useLS<ListRecord[]>('aod4-listrecs', [])
+  const [diary] = useLS<Diary>('aod4-diary', {})
 
   const recent = useMemo(() => {
     return allEmotionTags(notes, listrecs, diary)
@@ -956,7 +956,7 @@ function EmotionTherapyTab() {
 }
 
 function EmotionOverlayTab() {
-  const [stored] = useLS<{ snapshots: Record<string, number[][]> }>('aod3-selfmap-v1', { snapshots: {} })
+  const [stored] = useLS<{ snapshots: Record<string, number[][]> }>('aod4-selfmap-v1', { snapshots: {} })
   const snapshots = stored?.snapshots ?? {}
   const dates = useMemo(() => Object.keys(snapshots).sort(), [snapshots])
   const latestDate = dates[dates.length - 1]

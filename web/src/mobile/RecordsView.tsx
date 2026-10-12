@@ -76,10 +76,10 @@ export default function RecordsView({
   onHome: () => void
 }) {
   const tk = todayKey()
-  const [notes, setNotes] = useLS<Note[]>('aod3-notes', SEED_NOTES)
-  const [folders] = useLS<Folder[]>('aod3-folders', SEED_FOLDERS)
-  const [listrecs, setListrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
-  const [diary, setDiary] = useLS<Diary>('aod3-diary', {})
+  const [notes, setNotes] = useLS<Note[]>('aod4-notes', SEED_NOTES)
+  const [folders] = useLS<Folder[]>('aod4-folders', SEED_FOLDERS)
+  const [listrecs, setListrecs] = useLS<ListRecord[]>('aod4-listrecs', [])
+  const [diary, setDiary] = useLS<Diary>('aod4-diary', {})
 
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
   const [openDiaryDate, setOpenDiaryDate] = useState<string | null>(null)
