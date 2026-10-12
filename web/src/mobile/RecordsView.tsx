@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   BookOpen,
   FileText,
@@ -17,9 +17,6 @@ import {
 } from 'lucide-react'
 import {
   allEmotionTags,
-  BRICKGAME_LISTREC_FLAG,
-  BRICKGAME_LISTREC_IDS,
-  brickgameListRecords,
   emotionName,
   plutchikColor,
   recItemStats,
@@ -83,15 +80,6 @@ export default function RecordsView({
   const [folders] = useLS<Folder[]>('aod3-folders', SEED_FOLDERS)
   const [listrecs, setListrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
   const [diary, setDiary] = useLS<Diary>('aod3-diary', {})
-
-  // одноразовый сидинг записей BrickGame v2.0 (дорожная карта + требования с подблоками Ч1–Ч3)
-  useEffect(() => {
-    if (localStorage.getItem(BRICKGAME_LISTREC_FLAG)) return
-    localStorage.setItem(BRICKGAME_LISTREC_FLAG, '1')
-    setListrecs((rs) =>
-      rs.some((r) => BRICKGAME_LISTREC_IDS.includes(r.id)) ? rs : [...brickgameListRecords(), ...rs]
-    )
-  }, [setListrecs])
 
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
   const [openDiaryDate, setOpenDiaryDate] = useState<string | null>(null)

@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -30,9 +29,6 @@ import {
   type BlockList,
   type ListRecord,
   type TodayData,
-  BRICKGAME_DATE,
-  brickgameBlockLists,
-  brickgameFlagKey,
   moveItem,
   seedDayBlocks,
   seedTodayData,
@@ -166,15 +162,6 @@ export default function TodayView() {
   const [listrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
   // readOnly-день (вчера): мигрируем только то, что было в legacy, без дефолтов
   const [data, setData] = useLS<TodayData>(`aod3-today-data-${dateKey}`, seedTodayData(dateKey, wdName, readOnly))
-
-  // одноразово: на BRICKGAME_DATE блок «Чек-листы» — только блоки BrickGame v2.0
-  useEffect(() => {
-    if (dateKey !== BRICKGAME_DATE || readOnly) return
-    const flag = brickgameFlagKey(dateKey, 'blocks')
-    if (localStorage.getItem(flag)) return
-    localStorage.setItem(flag, '1')
-    setData((d) => ({ ...d, lists: { items: [], lists: brickgameBlockLists() } }))
-  }, [dateKey, readOnly, setData])
 
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [openLists, setOpenLists] = useState<string[]>([])

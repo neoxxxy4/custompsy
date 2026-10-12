@@ -1,10 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
-import {
-  BRICKGAME_CHECKLISTS,
-  BRICKGAME_REQUIREMENTS,
-  CHECKLISTS,
-  ROADMAP_CHECKLIST,
-} from '../../data/system'
+import { CHECKLISTS } from '../../data/system'
 
 // ─── types ───
 
@@ -176,35 +171,6 @@ export function instantiate(t: Template): DayInstance {
 // стартовый набор чек-листов дня (пусто по умолчанию)
 export const seedDay = (): DayInstance[] => []
 
-// ─── Одноразовый день BrickGame ───
-// На BRICKGAME_DATE чек-листы дня подменяются блоками проекта BrickGame v2.0:
-// сверху дорожная карта (один блок), ниже все требования (один блок).
-// Флаг-ключ гарантирует однократность: дальнейшие правки не перезаписываются.
-export const BRICKGAME_DATE = '2026-09-27'
-
-// Флаг-ключ по модели данных (scope: 'day' — десктоп, 'blocks' — мобильный),
-// чтобы каждая модель засеялась независимо и однократно.
-// v3 — день 27.09: дорожная карта + слитый блок требований; bump = повторный сидинг.
-export const brickgameFlagKey = (dateKey: string, scope: string) =>
-  `aod3-bg-seeded-v3-${scope}-${dateKey}`
-
-const brickgameChecklists = () => [ROADMAP_CHECKLIST, BRICKGAME_REQUIREMENTS]
-
-export const brickgameDayInstances = (): DayInstance[] =>
-  brickgameChecklists().map((c) => instantiate({ ...c, custom: false }))
-
-export const brickgameBlockLists = (): BlockList[] =>
-  brickgameChecklists().map((c) => ({
-    id: uid(),
-    kind: 'checklist' as const,
-    title: c.title,
-    items: c.items.map((it) => ({ id: it.id ?? uid(), text: it.text, done: false })),
-  }))
-
-// ─── Записи BrickGame в «Записях» (одноразовый сидинг, флаг BRICKGAME_LISTREC_FLAG) ───
-export const BRICKGAME_LISTREC_FLAG = 'aod3-bg-listrecs-seeded-v1'
-export const BRICKGAME_LISTREC_IDS = ['bg-rec-roadmap', 'bg-rec-req']
-
 // счётчик пунктов записи с учётом вложенных подблоков (рекурсивно)
 export const recItemStats = (r: ListRecord): { done: number; total: number } => {
   const walk = (ls: BlockList[]): { done: number; total: number } =>
@@ -229,30 +195,6 @@ export const toggleNestedListItem = (ls: BlockList[], listId: string, itemId: st
       ? { ...l, items: l.items.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)) }
       : { ...l, lists: l.lists ? toggleNestedListItem(l.lists, listId, itemId) : l.lists }
   )
-
-// две записи: дорожная карта (плоская) и требования (Ч1·×3/Ч2/Ч3 — вложенными подблоками)
-export const brickgameListRecords = (): ListRecord[] => [
-  {
-    id: BRICKGAME_LISTREC_IDS[0],
-    kind: 'checklist',
-    title: ROADMAP_CHECKLIST.title,
-    items: ROADMAP_CHECKLIST.items.map((it) => ({ id: uid(), text: it.text, done: false })),
-    updated: Date.now(),
-  },
-  {
-    id: BRICKGAME_LISTREC_IDS[1],
-    kind: 'checklist',
-    title: 'BrickGame v2.0 · Требования',
-    items: [],
-    lists: BRICKGAME_CHECKLISTS.map((c) => ({
-      id: uid(),
-      kind: 'checklist' as const,
-      title: c.title,
-      items: c.items.map((it) => ({ id: uid(), text: it.text, done: false })),
-    })),
-    updated: Date.now(),
-  },
-]
 
 // стартовое расписание дня: шаблон дня недели из «Планирования»
 // + перенос отметок из legacy-ключа aod3-sched-<date> (индексы wdName-i)
