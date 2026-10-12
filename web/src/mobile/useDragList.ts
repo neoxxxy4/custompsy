@@ -18,72 +18,123 @@ interface DragState {
 // (scale + тень), дальше, не отпуская палец, строка живо переставляется
 // между соседями; отпускание после сдвига фиксирует порядок (onReorder),
 // отпускание без сдвига — обычный long-press (onLongPress, action-sheet).
+// Удержание поднятой строки НАД другой строкой ~700ms (onMerge) — группировка
+// в подблок; жест на этом завершается без перестановки.
 // Скролл страницы блокируется только после срабатывания long-press:
 // нативный non-passive touchmove + preventDefault (React вешает passive).
 export function useDragList({
   disabled,
   onReorder,
   onLongPress,
+  onMerge,
   ms = 500,
+  mergeMs = 700,
 }: {
   disabled?: boolean
   onReorder: (from: number, to: number) => void
   onLongPress: (index: number) => void
+  onMerge?: (from: number, to: number) => void
   ms?: number
+  mergeMs?: number
 }) {
   const [drag, setDrag] = useState<DragState | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const rows = useRef<(HTMLElement | null)[]>([])
   const timer = useRef<number | undefined>(undefined)
+  const mergeTimer = useRef<number | undefined>(undefined)
+  const mergeTarget = useRef<number>(-1)
   const gesture = useRef<{ index: number; startX: number; startY: number; active: boolean; moved: boolean } | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const suppressClick = useRef(false)
-  const cb = useRef({ onReorder, onLongPress })
+  const cb = useRef({ onReorder, onLongPress, onMerge })
   const disabledRef = useRef(disabled)
   const msRef = useRef(ms)
+  const mergeMsRef = useRef(mergeMs)
 
   useEffect(() => {
-    cb.current = { onReorder, onLongPress }
+    cb.current = { onReorder, onLongPress, onMerge }
     disabledRef.current = disabled
     msRef.current = ms
+    mergeMsRef.current = mergeMs
   })
 
-  useEffect(() => () => window.clearTimeout(timer.current), [])
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current)
+      window.clearTimeout(mergeTimer.current)
+    },
+    [],
+  )
 
-  const updateDrag = useCallback((y: number) => {
-    const g = gesture.current
-    const st = dragRef.current
-    if (!g || !st) return
-    const delta = y - g.startY
-    if (Math.abs(delta) > 6) g.moved = true
-    const row = rows.current[st.index]
-    if (!row) return
-    const center = row.offsetTop + row.offsetHeight / 2 + delta
-    let target = 0
-    rows.current.forEach((r, i) => {
-      if (r && r.isConnected && i !== st.index && center > r.offsetTop + r.offsetHeight / 2) target++
-    })
-    const next = { index: st.index, target, delta }
-    dragRef.current = next
-    setDrag(next)
+  const clearMerge = useCallback(() => {
+    window.clearTimeout(mergeTimer.current)
+    mergeTimer.current = undefined
+    mergeTarget.current = -1
   }, [])
 
-  const finish = useCallback((commit: boolean) => {
-    window.clearTimeout(timer.current)
-    const g = gesture.current
-    const st = dragRef.current
-    gesture.current = null
-    dragRef.current = null
-    if (!st) return
-    suppressClick.current = true
-    window.setTimeout(() => {
-      suppressClick.current = false
-    }, 350)
-    setDrag(null)
-    if (!commit) return
-    if (g?.moved && st.target !== st.index) cb.current.onReorder(st.index, st.target)
-    else if (!g?.moved) cb.current.onLongPress(st.index)
-  }, [])
+  const updateDrag = useCallback(
+    (y: number) => {
+      const g = gesture.current
+      const st = dragRef.current
+      if (!g || !st) return
+      const delta = y - g.startY
+      if (Math.abs(delta) > 6) g.moved = true
+      const row = rows.current[st.index]
+      if (!row) return
+      const center = row.offsetTop + row.offsetHeight / 2 + delta
+      let target = 0
+      rows.current.forEach((r, i) => {
+        if (r && r.isConnected && i !== st.index && center > r.offsetTop + r.offsetHeight / 2) target++
+      })
+      const next = { index: st.index, target, delta }
+      dragRef.current = next
+      setDrag(next)
+      // удержание над чужой строкой → onMerge (группировка в подблок)
+      if (cb.current.onMerge) {
+        if (target !== st.index && target !== mergeTarget.current) {
+          clearMerge()
+          mergeTarget.current = target
+          mergeTimer.current = window.setTimeout(() => {
+            const cur = dragRef.current
+            if (!cur || cur.target !== target) return
+            const from = cur.index
+            // завершаем жест без перестановки, затем группируем
+            gesture.current = null
+            dragRef.current = null
+            clearMerge()
+            suppressClick.current = true
+            window.setTimeout(() => {
+              suppressClick.current = false
+            }, 350)
+            setDrag(null)
+            cb.current.onMerge?.(from, target)
+          }, mergeMsRef.current)
+        } else if (target === st.index) clearMerge()
+      }
+    },
+    [clearMerge],
+  )
+
+  const finish = useCallback(
+    (commit: boolean) => {
+      window.clearTimeout(timer.current)
+      clearMerge()
+      const g = gesture.current
+      const st = dragRef.current
+      gesture.current = null
+      dragRef.current = null
+      if (!st) return
+      suppressClick.current = true
+      window.setTimeout(() => {
+        suppressClick.current = false
+      }, 350)
+      setDrag(null)
+      if (!commit) return
+      if (g?.moved && st.target !== st.index) cb.current.onReorder(st.index, st.target)
+      else if (!g?.moved) cb.current.onLongPress(st.index)
+    },
+    [clearMerge],
+  )
 
   // touchmove — нативный non-passive, чтобы preventDefault реально блокировал скролл
   useEffect(() => {

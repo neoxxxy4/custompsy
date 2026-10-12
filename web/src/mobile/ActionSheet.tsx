@@ -14,19 +14,21 @@ function ActionRow({ icon: Icon, label, onClick }: { icon: LucideIcon; label: st
   )
 }
 
-// action-sheet по long-press: Изменить название / Удалить (с подтверждением Да/Нет)
+// action-sheet по long-press: Изменить название / доп. действия (extras) / Удалить (с подтверждением Да/Нет)
 export default function ActionSheet({
   title,
   onClose,
   onRename,
   onDelete,
   renameLabel = 'Изменить название',
+  extras,
 }: {
   title: string
   onClose: () => void
   onRename?: () => void
-  onDelete: () => void
+  onDelete?: () => void
   renameLabel?: string
+  extras?: { icon: LucideIcon; label: string; onClick: () => void }[]
 }) {
   const [mounted, setMounted] = useState(false)
   const [exiting, setExiting] = useState(false)
@@ -72,7 +74,10 @@ export default function ActionSheet({
         {!confirming ? (
           <div className="px-3 pb-3">
             {onRename && <ActionRow icon={Pencil} label={renameLabel} onClick={() => { onRename(); close() }} />}
-            <ActionRow icon={Trash2} label="Удалить" onClick={() => setConfirming(true)} />
+            {extras?.map((x) => (
+              <ActionRow key={x.label} icon={x.icon} label={x.label} onClick={() => { x.onClick(); close() }} />
+            ))}
+            {onDelete && <ActionRow icon={Trash2} label="Удалить" onClick={() => setConfirming(true)} />}
             <button
               onClick={close}
               className="mt-1 w-full py-3 rounded-xl"
@@ -95,7 +100,7 @@ export default function ActionSheet({
                 Нет
               </button>
               <button
-                onClick={() => { onDelete(); close() }}
+                onClick={() => { onDelete?.(); close() }}
                 className="flex-1 py-3 rounded-xl"
                 style={{ background: 'var(--accent)', color: '#fff', fontSize: 14, fontWeight: 600 }}
               >

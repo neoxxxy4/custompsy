@@ -2,8 +2,14 @@
 /data
 web/node_modules
 web/dist
+apk/
+*.apk
+graphify-out/
 android/.gradle
 android/build
 android/app/build
 android/app/src/main/assets
 android/local.properties
+.DS_Store
+android/.kotlin
+

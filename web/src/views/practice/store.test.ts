@@ -33,7 +33,7 @@ describe('seedBlockDefs', () => {
     expect(defs.map((d) => d.id)).toEqual(['goals', 'schedule', 'lists', 'tasks'])
     expect(defs.every((d) => d.inDashboard)).toBe(true)
     expect(defs[1].withTime).toBe(true)
-    expect(defs[2].allow).toEqual({ items: false, checklists: true, lists: false })
+    expect(defs[2].allow).toEqual({ items: false, checklists: true, lists: false, sub: true })
   })
 })
 

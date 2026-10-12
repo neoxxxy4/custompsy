@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ListOrdered, ListTodo, Plus } from 'lucide-react'
 import type { ListRecord } from '../views/practice/store'
+import { recItemStats } from '../views/practice/store'
 
 // шторка выбора при добавлении под-списка в блок:
 // «Новый» или готовый из «Записей» (aod2-listrecs)
@@ -83,7 +84,7 @@ export default function PickListSheet({
             >
               <KindIcon size={18} strokeWidth={1.7} style={{ color: 'var(--muted)' }} />
               <span className="flex-1 truncate">{r.title || (kind === 'checklist' ? 'Чек-лист' : 'Список')}</span>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{r.items.length}</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{recItemStats(r).total}</span>
             </button>
           ))}
 

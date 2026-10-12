@@ -1,5 +1,11 @@
 import type { Dispatch, SetStateAction } from 'react'
-import { CHECKLISTS, WEEK_TEMPLATE } from '../../data/system'
+import {
+  BRICKGAME_CHECKLISTS,
+  BRICKGAME_REQUIREMENTS,
+  CHECKLISTS,
+  ROADMAP_CHECKLIST,
+  WEEK_TEMPLATE,
+} from '../../data/system'
 
 // ─── types ───
 
@@ -18,9 +24,56 @@ export interface DayInstance {
 }
 
 export interface Folder { id: string; name: string }
-export interface Note { id: string; folderId: string; title: string; body: string; updated: number; pinned?: boolean }
+export interface EmotionSubItem {
+  name: string
+  level: number // 0–12
+}
 
-export interface DiaryEntry { text: string; emotion: string; focus: number; updated: number }
+export interface EmotionTag {
+  id: string
+  emotion: 'joy' | 'trust' | 'fear' | 'surprise' | 'sadness' | 'disgust' | 'anger' | 'anticipation'
+  level: 1 | 2 | 3
+  feelings?: EmotionSubItem[]
+  sensations?: EmotionSubItem[]
+  created: number
+}
+
+function normalizeSubItems(items: unknown): EmotionSubItem[] | undefined {
+  if (!Array.isArray(items)) return undefined
+  const result: EmotionSubItem[] = []
+  items.forEach((it) => {
+    if (typeof it === 'string' && it) {
+      result.push({ name: it, level: 6 })
+    } else if (it && typeof it === 'object') {
+      const name = String((it as Record<string, unknown>).name ?? '')
+      const level = Number((it as Record<string, unknown>).level ?? 6)
+      if (name) result.push({ name, level: Math.max(0, Math.min(12, level)) })
+    }
+  })
+  return result.length ? result : undefined
+}
+
+export function normalizeEmotionTag(tag: unknown): EmotionTag {
+  const t = tag as Record<string, unknown>
+  const feelings = normalizeSubItems(t.feelings) ?? normalizeSubItems(
+    typeof t.feeling === 'string' && t.feeling ? [t.feeling] : undefined
+  )
+  const sensations = normalizeSubItems(t.sensations) ?? normalizeSubItems(
+    typeof t.sensation === 'string' && t.sensation ? [t.sensation] : undefined
+  )
+  return {
+    id: String(t.id ?? ''),
+    emotion: String(t.emotion ?? 'joy') as EmotionTag['emotion'],
+    level: Number(t.level ?? 1) as 1 | 2 | 3,
+    feelings,
+    sensations,
+    created: Number(t.created ?? Date.now()),
+  }
+}
+
+export interface Note { id: string; folderId: string; title: string; body: string; updated: number; pinned?: boolean; emotions?: EmotionTag[]; therapy?: boolean }
+
+export interface DiaryEntry { text: string; emotion: string; focus: number; updated: number; emotions?: EmotionTag[]; therapy?: boolean }
 export type Diary = Record<string, DiaryEntry>
 
 export interface Goal { text: string; done: boolean }
@@ -33,24 +86,36 @@ export interface SchedBlock { id: string; time: string; what: string; color?: st
 
 // ─── кастомные блоки экрана «Сегодня» ───
 
-// описание блока (ключ aod2-today-blocks, порядок массива = порядок на экране)
+// описание блока (ключ aod2-today-blocks-<date>, у каждого дня свой набор; порядок массива = порядок на экране)
 export interface BlockDef {
   id: string
   title: string
   withTime: boolean        // расписание: у пунктов есть время
   inDashboard: boolean     // «Показывать в дашборде» (кольцо в «Прогресс дня»)
-  allow: { items: boolean; checklists: boolean; lists: boolean }  // «Состав блока»
+  hideDone?: boolean       // «Скрыть выполненные»: галочки не рисуются, но хранятся и считаются
+  allow: { items: boolean; checklists: boolean; lists: boolean; sub: boolean }  // «Состав блока»
 }
 
 // status — колонка канбана для невыполненных пунктов ('done' выводится из done)
 // dur — длительность события расписания в минутах (по умолчанию 60)
-export interface BlockItem { id: string; text: string; done: boolean; time?: string; status?: 'plan' | 'work'; dur?: number }
+// pos — запомненная позиция пункта в каждой группе (умная сортировка):
+// вернулся в группу — встаёт на своё старое место
+export interface BlockItem {
+  id: string
+  text: string
+  done: boolean
+  time?: string
+  status?: 'plan' | 'work'
+  dur?: number
+  pos?: { work?: number; plan?: number; done?: number }
+}
 
 export interface BlockList {
   id: string
-  kind: 'checklist' | 'list'  // чек-лист (зачёркивается) / список (нумерованный, не зачёркивается)
+  kind: 'checklist' | 'list' | 'sub'  // чек-лист / нумерованный список / подблок (как чек-лист, но без прогресс-бара, название необязательно)
   title: string
   items: BlockItem[]
+  lists?: BlockList[]  // вложенные подблоки: внутри блока, подблока или чек-листа
 }
 
 // данные дня по блокам (ключ aod2-today-data-<date>): blockId → пункты и под-списки
@@ -62,7 +127,9 @@ export interface ListRecord {
   kind: 'checklist' | 'list'
   title: string
   items: BlockItem[]
+  lists?: BlockList[]  // вложенные подблоки-чек-листы внутри записи
   updated: number
+  emotions?: EmotionTag[]
 }
 
 // ─── helpers ───
@@ -110,6 +177,84 @@ export function instantiate(t: Template): DayInstance {
 // стартовый набор чек-листов дня (встроенные шаблоны)
 export const seedDay = (): DayInstance[] => allTemplates([]).map(instantiate)
 
+// ─── Одноразовый день BrickGame ───
+// На BRICKGAME_DATE чек-листы дня подменяются блоками проекта BrickGame v2.0:
+// сверху дорожная карта (один блок), ниже все требования (один блок).
+// Флаг-ключ гарантирует однократность: дальнейшие правки не перезаписываются.
+export const BRICKGAME_DATE = '2026-09-27'
+
+// Флаг-ключ по модели данных (scope: 'day' — десктоп, 'blocks' — мобильный),
+// чтобы каждая модель засеялась независимо и однократно.
+// v3 — день 27.09: дорожная карта + слитый блок требований; bump = повторный сидинг.
+export const brickgameFlagKey = (dateKey: string, scope: string) =>
+  `aod2-bg-seeded-v3-${scope}-${dateKey}`
+
+const brickgameChecklists = () => [ROADMAP_CHECKLIST, BRICKGAME_REQUIREMENTS]
+
+export const brickgameDayInstances = (): DayInstance[] =>
+  brickgameChecklists().map((c) => instantiate({ ...c, custom: false }))
+
+export const brickgameBlockLists = (): BlockList[] =>
+  brickgameChecklists().map((c) => ({
+    id: uid(),
+    kind: 'checklist' as const,
+    title: c.title,
+    items: c.items.map((it) => ({ id: it.id ?? uid(), text: it.text, done: false })),
+  }))
+
+// ─── Записи BrickGame в «Записях» (одноразовый сидинг, флаг BRICKGAME_LISTREC_FLAG) ───
+export const BRICKGAME_LISTREC_FLAG = 'aod2-bg-listrecs-seeded-v1'
+export const BRICKGAME_LISTREC_IDS = ['bg-rec-roadmap', 'bg-rec-req']
+
+// счётчик пунктов записи с учётом вложенных подблоков (рекурсивно)
+export const recItemStats = (r: ListRecord): { done: number; total: number } => {
+  const walk = (ls: BlockList[]): { done: number; total: number } =>
+    ls.reduce(
+      (acc, l) => {
+        const sub = l.lists ? walk(l.lists) : { done: 0, total: 0 }
+        return {
+          done: acc.done + l.items.filter((i) => i.done).length + sub.done,
+          total: acc.total + l.items.length + sub.total,
+        }
+      },
+      { done: 0, total: 0 }
+    )
+  const sub = r.lists ? walk(r.lists) : { done: 0, total: 0 }
+  return { done: r.items.filter((i) => i.done).length + sub.done, total: r.items.length + sub.total }
+}
+
+// тоггл пункта во вложенных подблоках (рекурсивно)
+export const toggleNestedListItem = (ls: BlockList[], listId: string, itemId: string): BlockList[] =>
+  ls.map((l) =>
+    l.id === listId
+      ? { ...l, items: l.items.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)) }
+      : { ...l, lists: l.lists ? toggleNestedListItem(l.lists, listId, itemId) : l.lists }
+  )
+
+// две записи: дорожная карта (плоская) и требования (Ч1·×3/Ч2/Ч3 — вложенными подблоками)
+export const brickgameListRecords = (): ListRecord[] => [
+  {
+    id: BRICKGAME_LISTREC_IDS[0],
+    kind: 'checklist',
+    title: ROADMAP_CHECKLIST.title,
+    items: ROADMAP_CHECKLIST.items.map((it) => ({ id: uid(), text: it.text, done: false })),
+    updated: Date.now(),
+  },
+  {
+    id: BRICKGAME_LISTREC_IDS[1],
+    kind: 'checklist',
+    title: 'BrickGame v2.0 · Требования',
+    items: [],
+    lists: BRICKGAME_CHECKLISTS.map((c) => ({
+      id: uid(),
+      kind: 'checklist' as const,
+      title: c.title,
+      items: c.items.map((it) => ({ id: uid(), text: it.text, done: false })),
+    })),
+    updated: Date.now(),
+  },
+]
+
 // стартовое расписание дня: шаблон дня недели из «Планирования»
 // + перенос отметок из legacy-ключа aod2-sched-<date> (индексы wdName-i)
 export const seedSchedBlocks = (dateKey: string, wdName: string): SchedBlock[] => {
@@ -134,11 +279,33 @@ export const seedSchedBlocks = (dateKey: string, wdName: string): SchedBlock[] =
 
 // дефолтные блоки экрана «Сегодня»
 export const seedBlockDefs = (): BlockDef[] => [
-  { id: 'goals', title: 'Цели', withTime: false, inDashboard: true, allow: { items: true, checklists: false, lists: false } },
-  { id: 'schedule', title: 'Расписание', withTime: true, inDashboard: true, allow: { items: true, checklists: false, lists: false } },
-  { id: 'lists', title: 'Чек-листы', withTime: false, inDashboard: true, allow: { items: false, checklists: true, lists: false } },
-  { id: 'tasks', title: 'Задачи', withTime: false, inDashboard: true, allow: { items: true, checklists: false, lists: false } },
+  { id: 'goals', title: 'Цели', withTime: false, inDashboard: true, allow: { items: true, checklists: false, lists: false, sub: false } },
+  { id: 'schedule', title: 'Расписание', withTime: true, inDashboard: true, allow: { items: true, checklists: false, lists: false, sub: false } },
+  { id: 'lists', title: 'Чек-листы', withTime: false, inDashboard: true, allow: { items: false, checklists: true, lists: false, sub: true } },
+  { id: 'tasks', title: 'Задачи', withTime: false, inDashboard: true, allow: { items: true, checklists: false, lists: false, sub: true } },
 ]
+
+// дефолты для старых записей без полей
+export const normalizeDef = (d: BlockDef): BlockDef => ({
+  id: d.id,
+  title: d.title,
+  withTime: d.withTime ?? false,
+  inDashboard: d.inDashboard ?? true,
+  hideDone: d.hideDone ?? false,
+  allow: {
+    items: d.allow?.items ?? true,
+    checklists: d.allow?.checklists ?? false,
+    lists: d.allow?.lists ?? false,
+    sub: d.allow?.sub ?? false,
+  },
+})
+
+// блоки конкретного дня (ключ aod2-today-blocks-<date>): при первом открытии
+// берём legacy-глобальный список, дальше каждый день живёт со своими блоками
+export const seedDayBlocks = (): BlockDef[] => {
+  const legacy = readLegacy<BlockDef[]>('aod2-today-blocks')
+  return legacy && legacy.length ? legacy.map(normalizeDef) : seedBlockDefs()
+}
 
 const EMPTY_GOALS: Goal[] = Array.from({ length: 4 }, () => ({ text: '', done: false }))
 
@@ -222,3 +389,135 @@ export const SEED_NOTES: Note[] = [
     updated: Date.now(),
   },
 ]
+
+// ─── Эмоции (колесо Плутчика) ───
+
+export const PLUTCHIK_EMOTIONS: EmotionTag['emotion'][] = [
+  'joy',
+  'trust',
+  'fear',
+  'surprise',
+  'sadness',
+  'disgust',
+  'anger',
+  'anticipation',
+]
+
+export function plutchikEmotions(): string[] {
+  return [...PLUTCHIK_EMOTIONS]
+}
+
+const PLUTCHIK_BASE: Record<EmotionTag['emotion'], string> = {
+  joy: '#FFF700',
+  trust: '#9AFE66',
+  fear: '#00FF19',
+  surprise: '#00FFFF',
+  sadness: '#306EFF',
+  disgust: '#FF00FF',
+  anger: '#FF0000',
+  anticipation: '#FF8000',
+}
+
+const PLUTCHIK_DARK: Record<EmotionTag['emotion'], string> = {
+  joy: '#E6D900',
+  trust: '#7ED957',
+  fear: '#00D916',
+  surprise: '#00D9E6',
+  sadness: '#4C7DFF',
+  disgust: '#D946D9',
+  anger: '#FF4444',
+  anticipation: '#E67300',
+}
+
+export function plutchikColor(emotion: string, isDark = false): string {
+  const e = emotion as EmotionTag['emotion']
+  const map = isDark ? PLUTCHIK_DARK : PLUTCHIK_BASE
+  return map[e] ?? 'var(--muted)'
+}
+
+export function emotionName(emotion: string): string {
+  const map: Record<string, string> = {
+    joy: 'Радость',
+    trust: 'Доверие',
+    fear: 'Страх',
+    surprise: 'Удивление',
+    sadness: 'Печаль',
+    disgust: 'Отвращение',
+    anger: 'Гнев',
+    anticipation: 'Предвкушение',
+  }
+  return map[emotion] ?? emotion
+}
+
+export const EMOTION_WHEEL: Record<EmotionTag['emotion'], { feelings: string[]; sensations: string[] }> = {
+  joy: {
+    feelings: ['счастье', 'оптимизм', 'восторг', 'удовлетворение', 'радость', 'веселье', 'блаженство'],
+    sensations: ['тепло в груди', 'лёгкость', 'улыбка', 'энергия', 'сияние', 'покалывание'],
+  },
+  trust: {
+    feelings: ['близость', 'привязанность', 'любовь', 'безопасность', 'уверенность', 'благодарность'],
+    sensations: ['расслабление', 'тепло в животе', 'мягкость', 'открытость'],
+  },
+  fear: {
+    feelings: ['тревога', 'испуг', 'паника', 'беспокойство', 'робость', 'ужас', 'нервозность'],
+    sensations: ['комок в горле', 'дрожь', 'сердцебиение', 'потливость', 'напряжение в плечах', 'сухость во рту', 'озноб'],
+  },
+  surprise: {
+    feelings: ['изумление', 'шок', 'любопытство', 'недоумение', 'ошеломление'],
+    sensations: ['замираание', 'вздрагивание', 'брови вверх', 'открытый рот', 'бодрость'],
+  },
+  sadness: {
+    feelings: ['грусть', 'печаль', 'тоска', 'одиночество', 'разочарование', 'бессилие', 'апатия'],
+    sensations: ['тяжесть в груди', 'комок в горле', 'слёзы', 'вялость', 'опущенные плечи', 'пустота'],
+  },
+  disgust: {
+    feelings: ['отвращение', 'брезгливость', 'неприязнь', 'презрение', 'отторжение', 'тошнота'],
+    sensations: ['тошнота', 'морщины носа', 'сжатие в желудке', 'желание отвернуться', 'слюноотделение'],
+  },
+  anger: {
+    feelings: ['злость', 'агрессия', 'раздражение', 'негодование', 'ярость', 'обида', 'гнев'],
+    sensations: ['жар', 'напряжение в челюсти', 'сжатые губы', 'головная боль', 'тремор голоса', 'покраснение', 'боль в висках'],
+  },
+  anticipation: {
+    feelings: ['ожидание', 'интерес', 'любопытство', 'надежда', 'возбуждение', 'нетерпение'],
+    sensations: ['бабочки в животе', 'учащённое сердцебиение', 'лёгкое головокружение', 'энергия', 'улыбка'],
+  },
+}
+
+export const DEFAULT_FEELINGS = [
+  'тревога', 'паника', 'раздражение', 'злость', 'обида', 'вина', 'стыд', 'грусть', 'печаль', 'одиночество',
+  'усталость', 'апатия', 'скука', 'интерес', 'любопытство', 'радость', 'счастье', 'надежда', 'благодарность', 'спокойствие',
+]
+
+export const DEFAULT_SENSATIONS = [
+  'комок в горле', 'жжение в груди', 'сжимание в груди', 'бабочки в животе', 'тяжесть в животе',
+  'напряжение в плечах', 'боль в затылке', 'головокружение', 'сухость во рту', 'потливость',
+  'озноб', 'жар', 'слабость в ногах', 'сердцебиение', 'задержка дыхания', 'лёгкость', 'тепло в груди', 'покалывание',
+]
+
+export function allEmotionTags(notes: Note[], listrecs: ListRecord[], diary: Diary): EmotionTag[] {
+  const fromNotes = notes.flatMap((n) => (n.emotions ?? []).map(normalizeEmotionTag))
+  const fromRecs = listrecs.flatMap((r) => (r.emotions ?? []).map(normalizeEmotionTag))
+  const fromDiary = Object.values(diary).flatMap((d) => (d.emotions ?? []).map(normalizeEmotionTag))
+  return [...fromNotes, ...fromRecs, ...fromDiary].sort((a, b) => b.created - a.created)
+}
+
+export type EmotionRecordSource = 'note' | 'listrec' | 'diary'
+
+export function emotionRecords(
+  notes: Note[],
+  listrecs: ListRecord[],
+  diary: Diary,
+): { source: EmotionRecordSource; record: Note | ListRecord | { date: string; entry: DiaryEntry }; tags: EmotionTag[] }[] {
+  const items: { source: EmotionRecordSource; record: Note | ListRecord | { date: string; entry: DiaryEntry }; tags: EmotionTag[]; updated: number }[] = []
+  notes.forEach((n) => {
+    if (n.emotions?.length) items.push({ source: 'note', record: n, tags: n.emotions.map(normalizeEmotionTag), updated: n.updated })
+  })
+  listrecs.forEach((r) => {
+    if (r.emotions?.length) items.push({ source: 'listrec', record: r, tags: r.emotions.map(normalizeEmotionTag), updated: r.updated })
+  })
+  Object.entries(diary).forEach(([date, entry]) => {
+    if (entry.emotions?.length) items.push({ source: 'diary', record: { date, entry }, tags: entry.emotions.map(normalizeEmotionTag), updated: entry.updated || 0 })
+  })
+  return items.sort((a, b) => b.updated - a.updated)
+}

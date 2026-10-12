@@ -1,6 +1,14 @@
 import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import { type BlockItem, type ListRecord, moveItem, uid } from '../views/practice/store'
+import {
+  type BlockItem,
+  type BlockList,
+  type ListRecord,
+  moveItem,
+  recItemStats,
+  toggleNestedListItem,
+  uid,
+} from '../views/practice/store'
 import Immersion from './Immersion'
 import ActionSheet from './ActionSheet'
 import { useDragList } from './useDragList'
@@ -62,9 +70,13 @@ export default function ListRecordEditor({
           style={{ fontFamily: 'var(--font-body)', fontSize: 22, fontWeight: 700, color: 'var(--light)' }}
         />
         <p className="mt-1 mb-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
-          {rec.kind === 'checklist'
-            ? `чек-лист · ${rec.items.filter((i) => i.done).length}/${rec.items.length}`
-            : `список · ${rec.items.length} пунктов`}
+          {(() => {
+            const { done, total } = recItemStats(rec)
+            const sub = rec.lists?.length ? ` · ${rec.lists.length} подблоков` : ''
+            return rec.kind === 'checklist'
+              ? `чек-лист · ${done}/${total}${sub}`
+              : `список · ${total} пунктов${sub}`
+          })()}
         </p>
 
         <div {...drag.containerProps}>
@@ -122,6 +134,17 @@ export default function ListRecordEditor({
         >
           <Plus size={14} strokeWidth={1.8} /> добавить пункт
         </button>
+
+        {/* вложенные подблоки-чек-листы */}
+        {rec.lists?.map((l) => (
+          <SubListBlock
+            key={l.id}
+            list={l}
+            onToggle={(listId, itemId) =>
+              onPatch({ lists: toggleNestedListItem(rec.lists ?? [], listId, itemId) })
+            }
+          />
+        ))}
       </div>
 
       {/* action-sheet по long-press по пункту */}
@@ -172,5 +195,58 @@ export default function ListRecordEditor({
         </div>
       )}
     </Immersion>
+  )
+}
+
+// вложенный подблок записи: заголовок с прогрессом + пункты с чекбоксами (рекурсивно)
+function SubListBlock({
+  list,
+  onToggle,
+  depth = 0,
+}: {
+  list: BlockList
+  onToggle: (listId: string, itemId: string) => void
+  depth?: number
+}) {
+  const done = list.items.filter((i) => i.done).length
+  return (
+    <div
+      className="mt-4 rounded-2xl p-3.5"
+      style={{
+        background: depth === 0 ? 'var(--surface)' : 'transparent',
+        border: '1px solid var(--line)',
+        marginLeft: depth > 0 ? 12 : 0,
+      }}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className="min-w-0 truncate" style={{ fontSize: 14, fontWeight: 600, color: 'var(--light)' }}>
+          {list.title || 'Подблок'}
+        </span>
+        <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+          {done}/{list.items.length}
+        </span>
+      </div>
+      {list.items.map((it) => (
+        <div key={it.id} className="flex items-center gap-2.5 py-2">
+          <button onClick={() => onToggle(list.id, it.id)} className="flex-none">
+            <MCheck done={it.done} color="var(--accent)" size={18} />
+          </button>
+          <span
+            className="flex-1 min-w-0"
+            style={{
+              fontSize: 14,
+              color: it.done ? 'var(--muted)' : 'var(--light)',
+              textDecoration: it.done ? 'line-through' : 'none',
+              textDecorationColor: 'var(--line-strong)',
+            }}
+          >
+            {it.text || '—'}
+          </span>
+        </div>
+      ))}
+      {list.lists?.map((sub) => (
+        <SubListBlock key={sub.id} list={sub} onToggle={onToggle} depth={depth + 1} />
+      ))}
+    </div>
   )
 }

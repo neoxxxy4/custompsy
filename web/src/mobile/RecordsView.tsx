@@ -1,19 +1,33 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen,
   FileText,
   Folder as FolderIcon,
+  HeartPulse,
   ListChecks,
   ListOrdered,
   Plus,
   Search,
   Share2,
+  SmilePlus,
+  Stethoscope,
   Star,
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
 import {
+  allEmotionTags,
+  BRICKGAME_LISTREC_FLAG,
+  BRICKGAME_LISTREC_IDS,
+  brickgameListRecords,
+  emotionName,
+  plutchikColor,
+  recItemStats,
+  toggleNestedListItem,
+  type BlockItem,
   type Diary,
+  type EmotionRecordSource,
+  type EmotionTag,
   type Folder,
   type ListRecord,
   type Note,
@@ -23,18 +37,21 @@ import {
   uid,
   useLS,
 } from '../views/practice/store'
+import EmotionTagSheet, { type SheetState } from './EmotionTagSheet'
 import Immersion from './Immersion'
 import ListRecordEditor from './ListRecordEditor'
 import { MCheck, Tile } from './ui'
 import { fmtWhen, useToast } from './utils'
 
-export type FolderKey = 'all' | 'notes' | 'lists' | 'diary'
+export type FolderKey = 'all' | 'notes' | 'lists' | 'diary' | 'therapy' | 'emotion-diary'
 
 const FOLDER_TABS: { id: FolderKey; label: string; icon: LucideIcon }[] = [
   { id: 'all', label: 'Всё', icon: FolderIcon },
   { id: 'notes', label: 'Заметки', icon: FileText },
   { id: 'lists', label: 'Списки', icon: ListChecks },
   { id: 'diary', label: 'Дневник', icon: BookOpen },
+  { id: 'therapy', label: 'Терапия', icon: Stethoscope },
+  { id: 'emotion-diary', label: 'Дн. эмоций', icon: HeartPulse },
 ]
 
 const TILE_COLORS = ['var(--accent)', 'var(--f-metacog)', 'var(--f-neuro)', 'var(--f-emotions)', 'var(--f-environment)']
@@ -47,10 +64,10 @@ const diaryLabel = (dk: string) => {
 }
 
 const recTitle = (r: ListRecord) => r.title || (r.kind === 'checklist' ? 'Чек-лист' : 'Список')
-const recSub = (r: ListRecord) =>
-  r.kind === 'checklist'
-    ? `${r.items.filter((i) => i.done).length}/${r.items.length} пунктов`
-    : `${r.items.length} пунктов`
+const recSub = (r: ListRecord) => {
+  const { done, total } = recItemStats(r)
+  return r.kind === 'checklist' ? `${done}/${total} пунктов` : `${total} пунктов`
+}
 
 export default function RecordsView({
   folder,
@@ -67,12 +84,24 @@ export default function RecordsView({
   const [listrecs, setListrecs] = useLS<ListRecord[]>('aod2-listrecs', [])
   const [diary, setDiary] = useLS<Diary>('aod2-diary', {})
 
+  // одноразовый сидинг записей BrickGame v2.0 (дорожная карта + требования с подблоками Ч1–Ч3)
+  useEffect(() => {
+    if (localStorage.getItem(BRICKGAME_LISTREC_FLAG)) return
+    localStorage.setItem(BRICKGAME_LISTREC_FLAG, '1')
+    setListrecs((rs) =>
+      rs.some((r) => BRICKGAME_LISTREC_IDS.includes(r.id)) ? rs : [...brickgameListRecords(), ...rs]
+    )
+  }, [setListrecs])
+
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
   const [openDiaryDate, setOpenDiaryDate] = useState<string | null>(null)
   const [openRecId, setOpenRecId] = useState<string | null>(null)
   const [fabMenu, setFabMenu] = useState(false)
   const [listFab, setListFab] = useState(false)
+  const [emotionSheet, setEmotionSheet] = useState<SheetState>({ open: false, mode: 'create' })
   const toast = useToast()
+
+  const allEmotionTagsList = useMemo(() => allEmotionTags(notes, listrecs, diary), [notes, listrecs, diary])
 
   const touchX = useRef<number | null>(null)
 
@@ -99,6 +128,7 @@ export default function RecordsView({
       sub: string
       updated: number
       recKind?: ListRecord['kind']
+      therapy?: boolean
     }
     const items: Item[] = [
       ...notes.map((n): Item => ({
@@ -106,6 +136,7 @@ export default function RecordsView({
         title: n.title || 'Без названия',
         sub: n.body.split('\n')[0] || '—',
         updated: n.updated,
+        therapy: n.therapy,
       })),
       ...listrecs.map((r): Item => ({
         kind: 'listrec', id: r.id, recKind: r.kind,
@@ -118,10 +149,15 @@ export default function RecordsView({
         title: `Дневник · ${diaryLabel(dk)}`,
         sub: diary[dk].text.split('\n')[0] || diary[dk].emotion,
         updated: diary[dk].updated || 0,
+        therapy: diary[dk].therapy,
       })),
     ]
     return items.sort((a, b) => b.updated - a.updated)
   }, [notes, listrecs, diaryDays, diary])
+
+  const therapyNotes = useMemo(() => sortedNotes.filter((n) => n.therapy), [sortedNotes])
+  const therapyDiaryDays = useMemo(() => diaryDays.filter((dk) => diary[dk].therapy), [diaryDays, diary])
+  const emotionDiaryDays = useMemo(() => diaryDays.filter((dk) => (diary[dk].emotions?.length ?? 0) > 0), [diaryDays, diary])
 
   // ─── свайп папок ───
   const onTouchStart = (e: React.TouchEvent) => {
@@ -160,6 +196,87 @@ export default function RecordsView({
   const diaryEntry = (dk: string) => diary[dk] || { text: '', emotion: '', focus: 5, updated: 0 }
   const patchDiary = (dk: string, p: Partial<Diary[string]>) =>
     setDiary((d) => ({ ...d, [dk]: { ...diaryEntry(dk), ...p, updated: Date.now() } }))
+
+  const openEmotionSheet = (sourceType: EmotionRecordSource, sourceId: string, tag?: EmotionTag) => {
+    setEmotionSheet({
+      open: true,
+      mode: tag ? 'edit' : 'create',
+      initial: tag ? { ...tag } : { emotion: 'joy', level: 1, feelings: [], sensations: [] },
+      sourceType,
+      sourceId,
+      tagId: tag?.id,
+    })
+  }
+
+  const saveEmotionTag = (
+    tag: EmotionTag,
+    sourceType: EmotionRecordSource | undefined,
+    sourceId: string | undefined,
+  ) => {
+    const targetType = sourceType ?? 'diary'
+    const targetId = sourceId ?? todayKey()
+    const attach = (existing: EmotionTag[] = []): EmotionTag[] => {
+      if (emotionSheet.mode === 'edit' && emotionSheet.tagId) {
+        return existing.map((t) => (t.id === emotionSheet.tagId ? tag : t))
+      }
+      return [tag, ...existing]
+    }
+
+    if (targetType === 'note') {
+      setNotes((ns) =>
+        ns.map((n) =>
+          n.id === targetId ? { ...n, emotions: attach(n.emotions), updated: Date.now() } : n,
+        ),
+      )
+    } else if (targetType === 'listrec') {
+      setListrecs((rs) =>
+        rs.map((r) =>
+          r.id === targetId ? { ...r, emotions: attach(r.emotions), updated: Date.now() } : r,
+        ),
+      )
+    } else {
+      setDiary((d) => {
+        const entry = d[targetId] || { text: '', emotion: '', focus: 5, updated: 0 }
+        return {
+          ...d,
+          [targetId]: { ...entry, emotions: attach(entry.emotions), updated: Date.now() },
+        }
+      })
+    }
+  }
+
+  const deleteEmotionTag = (sourceType: EmotionRecordSource, sourceId: string, tagId: string) => {
+    if (sourceType === 'note') {
+      setNotes((ns) =>
+        ns.map((n) =>
+          n.id === sourceId
+            ? { ...n, emotions: (n.emotions ?? []).filter((t) => t.id !== tagId), updated: Date.now() }
+            : n,
+        ),
+      )
+    } else if (sourceType === 'listrec') {
+      setListrecs((rs) =>
+        rs.map((r) =>
+          r.id === sourceId
+            ? { ...r, emotions: (r.emotions ?? []).filter((t) => t.id !== tagId), updated: Date.now() }
+            : r,
+        ),
+      )
+    } else {
+      setDiary((d) => {
+        const entry = d[sourceId]
+        if (!entry) return d
+        return {
+          ...d,
+          [sourceId]: {
+            ...entry,
+            emotions: (entry.emotions ?? []).filter((t) => t.id !== tagId),
+            updated: Date.now(),
+          },
+        }
+      })
+    }
+  }
 
   const onFab = () => {
     if (folder === 'notes') createNote()
@@ -235,8 +352,11 @@ export default function RecordsView({
                   size={36}
                 />
                 <span className="flex-1 min-w-0">
-                  <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--light)' }}>
-                    {it.title}
+                  <span className="flex items-center gap-1.5">
+                    <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--light)' }}>
+                      {it.title}
+                    </span>
+                    {it.therapy && <Stethoscope size={12} strokeWidth={1.8} style={{ color: 'var(--muted)' }} />}
                   </span>
                   <span className="block truncate mt-0.5" style={{ fontSize: 12.5, color: 'var(--muted)' }}>
                     {it.sub}
@@ -254,47 +374,19 @@ export default function RecordsView({
           <>
             {sortedNotes.length === 0 && <Empty text="Нет заметок — создай первую через +" />}
             {sortedNotes.map((n, i) => (
-              <button
+              <NoteRow
                 key={n.id}
-                onClick={() => setOpenNoteId(n.id)}
-                className="w-full rounded-2xl p-3.5 text-left"
-                style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
-              >
-                <span className="flex items-start gap-3">
-                  <Tile icon={FileText} color={TILE_COLORS[i % TILE_COLORS.length]} size={44} />
-                  <span className="flex-1 min-w-0">
-                    <span className="flex items-start justify-between gap-2">
-                      <span className="truncate" style={{ fontSize: 15, fontWeight: 600, color: 'var(--light)' }}>
-                        {n.title || 'Без названия'}
-                      </span>
-                      <span className="flex-none pt-0.5" style={{ fontSize: 11, color: 'var(--muted)' }}>
-                        {fmtWhen(n.updated)}
-                      </span>
-                    </span>
-                    <span className="block mt-1 line-clamp-2" style={{ fontSize: 13, lineHeight: 1.45, color: 'var(--muted)' }}>
-                      {n.body || '—'}
-                    </span>
-                  </span>
-                </span>
-                <span className="flex items-center justify-between mt-2.5">
-                  <span
-                    className="px-2.5 py-0.5 rounded-md"
-                    style={{ background: 'var(--surface-2)', fontSize: 11, color: 'var(--muted)' }}
-                  >
-                    {folderName(n.folderId)}
-                  </span>
-                  <Star
-                    size={16}
-                    strokeWidth={1.7}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      patchNote(n.id, { pinned: !n.pinned })
-                    }}
-                    style={{ color: n.pinned ? 'var(--accent)' : 'var(--muted)' }}
-                    fill={n.pinned ? 'var(--accent)' : 'none'}
-                  />
-                </span>
-              </button>
+                n={n}
+                folderName={folderName(n.folderId)}
+                tileColor={TILE_COLORS[i % TILE_COLORS.length]}
+                onOpen={() => setOpenNoteId(n.id)}
+                onTogglePin={(e) => {
+                  e.stopPropagation()
+                  patchNote(n.id, { pinned: !n.pinned })
+                }}
+                onEditEmotion={(tag) => openEmotionSheet('note', n.id, tag)}
+                onAddEmotion={() => openEmotionSheet('note', n.id)}
+              />
             ))}
           </>
         )}
@@ -312,6 +404,11 @@ export default function RecordsView({
                     items: r.items.map((x) => (x.id === itemId ? { ...x, done: !x.done } : x)),
                   })
                 }
+                onToggleListItem={(listId, itemId) =>
+                  patchRec(r.id, { lists: toggleNestedListItem(r.lists ?? [], listId, itemId) })
+                }
+                onEditEmotion={(tag) => openEmotionSheet('listrec', r.id, tag)}
+                onAddEmotion={() => openEmotionSheet('listrec', r.id)}
               />
             ))}
           </>
@@ -321,30 +418,63 @@ export default function RecordsView({
           <>
             {diaryDays.length === 0 && <Empty text="Нет записей — напиши первую через +" />}
             {diaryDays.map((dk) => (
-              <button
+              <DiaryRow
                 key={dk}
-                onClick={() => setOpenDiaryDate(dk)}
-                className="w-full rounded-2xl p-3.5 flex items-center gap-3 text-left"
-                style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
-              >
-                <Tile icon={BookOpen} color="var(--f-emotions)" size={36} />
-                <span className="flex-1 min-w-0">
-                  <span className="block" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--light)' }}>
-                    {diaryLabel(dk)}
-                  </span>
-                  <span className="block truncate mt-0.5" style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                    {diary[dk].text.split('\n')[0] || '—'}
-                  </span>
-                </span>
-                {diary[dk].emotion && (
-                  <span
-                    className="flex-none px-2.5 py-0.5 rounded-full"
-                    style={{ border: '1px solid var(--accent)', fontSize: 11, color: 'var(--accent)' }}
-                  >
-                    {diary[dk].emotion}
-                  </span>
-                )}
-              </button>
+                dk={dk}
+                diary={diary}
+                onOpen={() => setOpenDiaryDate(dk)}
+                onEditEmotion={(tag) => openEmotionSheet('diary', dk, tag)}
+                onAddEmotion={() => openEmotionSheet('diary', dk)}
+              />
+            ))}
+          </>
+        )}
+
+        {folder === 'therapy' && (
+          <>
+            {therapyNotes.length === 0 && therapyDiaryDays.length === 0 && (
+              <Empty text="Нет терапевтических записей — отметь заметку или дневник терапией" />
+            )}
+            {therapyNotes.map((n, i) => (
+              <NoteRow
+                key={n.id}
+                n={n}
+                folderName={folderName(n.folderId)}
+                tileColor={TILE_COLORS[i % TILE_COLORS.length]}
+                onOpen={() => setOpenNoteId(n.id)}
+                onTogglePin={(e) => {
+                  e.stopPropagation()
+                  patchNote(n.id, { pinned: !n.pinned })
+                }}
+                onEditEmotion={(tag) => openEmotionSheet('note', n.id, tag)}
+                onAddEmotion={() => openEmotionSheet('note', n.id)}
+              />
+            ))}
+            {therapyDiaryDays.map((dk) => (
+              <DiaryRow
+                key={dk}
+                dk={dk}
+                diary={diary}
+                onOpen={() => setOpenDiaryDate(dk)}
+                onEditEmotion={(tag) => openEmotionSheet('diary', dk, tag)}
+                onAddEmotion={() => openEmotionSheet('diary', dk)}
+              />
+            ))}
+          </>
+        )}
+
+        {folder === 'emotion-diary' && (
+          <>
+            {emotionDiaryDays.length === 0 && <Empty text="Нет записей с эмоциональными тегами" />}
+            {emotionDiaryDays.map((dk) => (
+              <DiaryRow
+                key={dk}
+                dk={dk}
+                diary={diary}
+                onOpen={() => setOpenDiaryDate(dk)}
+                onEditEmotion={(tag) => openEmotionSheet('diary', dk, tag)}
+                onAddEmotion={() => openEmotionSheet('diary', dk)}
+              />
             ))}
           </>
         )}
@@ -469,6 +599,29 @@ export default function RecordsView({
               className="w-full bg-transparent outline-none resize-none"
               style={{ fontFamily: 'var(--font-body)', fontSize: 15, lineHeight: 1.65, color: 'var(--text-2)', minHeight: 320 }}
             />
+            <button
+              onClick={() => patchNote(openNote.id, { therapy: !openNote.therapy })}
+              className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+              style={{
+                background: openNote.therapy ? 'var(--accent)' : 'var(--surface-2)',
+                color: openNote.therapy ? 'var(--on-fill)' : 'var(--muted)',
+                border: '1px solid var(--line)',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              <Stethoscope size={13} strokeWidth={1.8} /> {openNote.therapy ? 'Терапия' : 'Отметить как терапию'}
+            </button>
+            <div className="flex flex-wrap items-center gap-1.5 mt-3">
+              <EmotionChips tags={openNote.emotions} onClick={(tag) => openEmotionSheet('note', openNote.id, tag)} />
+              <button
+                onClick={() => openEmotionSheet('note', openNote.id)}
+                className="flex items-center gap-1 px-2 py-1 rounded-full"
+                style={{ background: 'var(--surface-2)', border: '1px dashed var(--line-strong)', fontSize: 11, color: 'var(--muted)' }}
+              >
+                <SmilePlus size={12} strokeWidth={1.8} /> эмоция
+              </button>
+            </div>
           </div>
         </Immersion>
       )}
@@ -485,6 +638,25 @@ export default function RecordsView({
             setListrecs((rs) => rs.filter((r) => r.id !== openRec.id))
             setOpenRecId(null)
           }}
+        />
+      )}
+
+      {/* шторка эмоций */}
+      {emotionSheet.open && (
+        <EmotionTagSheet
+          key={`${emotionSheet.mode}-${emotionSheet.tagId ?? 'new'}`}
+          state={emotionSheet}
+          notes={notes}
+          listrecs={listrecs}
+          diary={diary}
+          allTags={allEmotionTagsList}
+          onClose={() => setEmotionSheet({ open: false, mode: 'create' })}
+          onSave={saveEmotionTag}
+          onDelete={
+            emotionSheet.mode === 'edit' && emotionSheet.sourceType && emotionSheet.sourceId && emotionSheet.tagId
+              ? () => deleteEmotionTag(emotionSheet.sourceType!, emotionSheet.sourceId!, emotionSheet.tagId!)
+              : undefined
+          }
         />
       )}
 
@@ -526,6 +698,32 @@ export default function RecordsView({
               className="mt-2 bg-transparent outline-none px-3.5 py-1.5 rounded-full"
               style={{ border: '1px solid var(--accent)', color: 'var(--accent)', fontSize: 13, width: 180 }}
             />
+            <button
+              onClick={() => patchDiary(openDiaryDate, { therapy: !diaryEntry(openDiaryDate).therapy })}
+              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+              style={{
+                background: diaryEntry(openDiaryDate).therapy ? 'var(--accent)' : 'var(--surface-2)',
+                color: diaryEntry(openDiaryDate).therapy ? 'var(--on-fill)' : 'var(--muted)',
+                border: '1px solid var(--line)',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              <Stethoscope size={13} strokeWidth={1.8} /> {diaryEntry(openDiaryDate).therapy ? 'Терапия' : 'Отметить как терапию'}
+            </button>
+            <div className="flex flex-wrap items-center gap-1.5 mt-3">
+              <EmotionChips
+                tags={diaryEntry(openDiaryDate).emotions}
+                onClick={(tag) => openEmotionSheet('diary', openDiaryDate, tag)}
+              />
+              <button
+                onClick={() => openEmotionSheet('diary', openDiaryDate)}
+                className="flex items-center gap-1 px-2 py-1 rounded-full"
+                style={{ background: 'var(--surface-2)', border: '1px dashed var(--line-strong)', fontSize: 11, color: 'var(--muted)' }}
+              >
+                <SmilePlus size={12} strokeWidth={1.8} /> эмоция
+              </button>
+            </div>
             <div className="mt-6 pb-16">
               <div className="flex items-center justify-between mb-2">
                 <span className="mono-label">Фокус</span>
@@ -557,18 +755,53 @@ export default function RecordsView({
 }
 
 // карточка записи на вкладке «Списки»: плитка-иконка + заголовок + подпись + счётчик,
-// ниже — превью до 5 пунктов (у чек-листа чекбоксы интерактивны)
+// ниже — превью до 5 пунктов (у чек-листа чекбоксы интерактивны);
+// вложенные подблоки — заголовок с прогрессом + до 4 пунктов с чекбоксами
 function ListRecCard({
   rec,
   onOpen,
   onToggleItem,
+  onToggleListItem,
+  onEditEmotion,
+  onAddEmotion,
 }: {
   rec: ListRecord
   onOpen: () => void
   onToggleItem: (itemId: string) => void
+  onToggleListItem: (listId: string, itemId: string) => void
+  onEditEmotion: (tag: EmotionTag) => void
+  onAddEmotion: () => void
 }) {
   const Icon = rec.kind === 'checklist' ? ListChecks : ListOrdered
   const color = rec.kind === 'checklist' ? 'var(--ring-checklists)' : 'var(--ring-tasks)'
+  const stats = recItemStats(rec)
+  const itemRow = (it: BlockItem, idx: number, onToggle: () => void) => (
+    <div key={it.id} className="flex items-center gap-2.5 py-1.5">
+      {rec.kind === 'checklist' ? (
+        <button onClick={onToggle} className="flex-none" title="Отметить">
+          <MCheck done={it.done} color={color} size={16} />
+        </button>
+      ) : (
+        <span
+          className="flex-none w-4 text-right"
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}
+        >
+          {idx + 1}.
+        </span>
+      )}
+      <span
+        className="min-w-0 truncate"
+        style={{
+          fontSize: 13,
+          color: rec.kind === 'checklist' && it.done ? 'var(--muted)' : 'var(--text-2)',
+          textDecoration: rec.kind === 'checklist' && it.done ? 'line-through' : 'none',
+          textDecorationColor: 'var(--line-strong)',
+        }}
+      >
+        {it.text || '—'}
+      </span>
+    </div>
+  )
   return (
     <div className="rounded-2xl p-3.5" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
       <button onClick={onOpen} className="w-full flex items-center gap-3 text-left">
@@ -579,43 +812,27 @@ function ListRecCard({
           </span>
           <span className="block mt-0.5" style={{ fontSize: 12, color: 'var(--muted)' }}>
             {rec.kind === 'checklist' ? 'чек-лист' : 'список'}
+            {rec.lists?.length ? ` · ${rec.lists.length} подблоков` : ''}
           </span>
         </span>
         <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
-          {rec.kind === 'checklist'
-            ? `${rec.items.filter((i) => i.done).length}/${rec.items.length}`
-            : `${rec.items.length} пунктов`}
+          {rec.kind === 'checklist' ? `${stats.done}/${stats.total}` : `${stats.total} пунктов`}
         </span>
       </button>
+      <div className="flex flex-wrap items-center gap-1.5 mt-2">
+        <EmotionChips tags={rec.emotions} onClick={onEditEmotion} />
+        <button
+          onClick={onAddEmotion}
+          className="flex-none grid place-items-center rounded-full"
+          style={{ width: 18, height: 18, background: 'var(--surface-2)', color: 'var(--muted)' }}
+          title="Добавить эмоцию"
+        >
+          <Plus size={12} strokeWidth={2} />
+        </button>
+      </div>
       {rec.items.length > 0 && (
         <div className="mt-2 pt-1" style={{ borderTop: '1px solid var(--line)' }}>
-          {rec.items.slice(0, 5).map((it, idx) => (
-            <div key={it.id} className="flex items-center gap-2.5 py-1.5">
-              {rec.kind === 'checklist' ? (
-                <button onClick={() => onToggleItem(it.id)} className="flex-none" title="Отметить">
-                  <MCheck done={it.done} color={color} size={16} />
-                </button>
-              ) : (
-                <span
-                  className="flex-none w-4 text-right"
-                  style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}
-                >
-                  {idx + 1}.
-                </span>
-              )}
-              <span
-                className="min-w-0 truncate"
-                style={{
-                  fontSize: 13,
-                  color: rec.kind === 'checklist' && it.done ? 'var(--muted)' : 'var(--text-2)',
-                  textDecoration: rec.kind === 'checklist' && it.done ? 'line-through' : 'none',
-                  textDecorationColor: 'var(--line-strong)',
-                }}
-              >
-                {it.text || '—'}
-              </span>
-            </div>
-          ))}
+          {rec.items.slice(0, 5).map((it, idx) => itemRow(it, idx, () => onToggleItem(it.id)))}
           {rec.items.length > 5 && (
             <p className="pt-1" style={{ fontSize: 11, color: 'var(--muted)' }}>
               ещё {rec.items.length - 5}…
@@ -623,7 +840,164 @@ function ListRecCard({
           )}
         </div>
       )}
+      {rec.lists?.map((l) => {
+        const done = l.items.filter((i) => i.done).length
+        return (
+          <div key={l.id} className="mt-2 pt-1" style={{ borderTop: '1px solid var(--line)' }}>
+            <div className="flex items-center justify-between gap-2 py-1">
+              <span className="min-w-0 truncate" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--light)' }}>
+                {l.title || 'Подблок'}
+              </span>
+              <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+                {done}/{l.items.length}
+              </span>
+            </div>
+            {l.items.slice(0, 4).map((it, idx) => itemRow(it, idx, () => onToggleListItem(l.id, it.id)))}
+            {l.items.length > 4 && (
+              <p className="pt-1" style={{ fontSize: 11, color: 'var(--muted)' }}>
+                ещё {l.items.length - 4}…
+              </p>
+            )}
+          </div>
+        )
+      })}
     </div>
+  )
+}
+
+function NoteRow({
+  n,
+  folderName,
+  tileColor,
+  onOpen,
+  onTogglePin,
+  onEditEmotion,
+  onAddEmotion,
+}: {
+  n: Note
+  folderName: string
+  tileColor: string
+  onOpen: () => void
+  onTogglePin: (e: React.MouseEvent) => void
+  onEditEmotion: (tag: EmotionTag) => void
+  onAddEmotion: () => void
+}) {
+  return (
+    <button
+      onClick={onOpen}
+      className="w-full rounded-2xl p-3.5 text-left"
+      style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+    >
+      <span className="flex items-start gap-3">
+        <Tile icon={FileText} color={tileColor} size={44} />
+        <span className="flex-1 min-w-0">
+          <span className="flex items-start justify-between gap-2">
+            <span className="truncate" style={{ fontSize: 15, fontWeight: 600, color: 'var(--light)' }}>
+              {n.title || 'Без названия'}
+            </span>
+            <span className="flex-none pt-0.5" style={{ fontSize: 11, color: 'var(--muted)' }}>
+              {fmtWhen(n.updated)}
+            </span>
+          </span>
+          <span className="block mt-1 line-clamp-2" style={{ fontSize: 13, lineHeight: 1.45, color: 'var(--muted)' }}>
+            {n.body || '—'}
+          </span>
+        </span>
+      </span>
+      <span className="flex items-center justify-between mt-2.5">
+        <span className="flex items-center gap-1.5 flex-wrap">
+          <span
+            className="px-2.5 py-0.5 rounded-md"
+            style={{ background: 'var(--surface-2)', fontSize: 11, color: 'var(--muted)' }}
+          >
+            {folderName}
+          </span>
+          {n.therapy && (
+            <span
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md"
+              style={{ background: 'var(--surface-2)', fontSize: 10, color: 'var(--muted)' }}
+            >
+              <Stethoscope size={10} strokeWidth={1.8} /> терапия
+            </span>
+          )}
+          <EmotionChips tags={n.emotions} onClick={onEditEmotion} />
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onAddEmotion()
+            }}
+            className="flex-none grid place-items-center rounded-full"
+            style={{ width: 18, height: 18, background: 'var(--surface-2)', color: 'var(--muted)' }}
+            title="Добавить эмоцию"
+          >
+            <Plus size={12} strokeWidth={2} />
+          </button>
+        </span>
+        <Star
+          size={16}
+          strokeWidth={1.7}
+          onClick={onTogglePin}
+          style={{ color: n.pinned ? 'var(--accent)' : 'var(--muted)' }}
+          fill={n.pinned ? 'var(--accent)' : 'none'}
+        />
+      </span>
+    </button>
+  )
+}
+
+function DiaryRow({
+  dk,
+  diary,
+  onOpen,
+  onEditEmotion,
+  onAddEmotion,
+}: {
+  dk: string
+  diary: Diary
+  onOpen: () => void
+  onEditEmotion: (tag: EmotionTag) => void
+  onAddEmotion: () => void
+}) {
+  return (
+    <button
+      onClick={onOpen}
+      className="w-full rounded-2xl p-3.5 text-left"
+      style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+    >
+      <span className="flex items-center gap-3">
+        <Tile icon={BookOpen} color="var(--f-emotions)" size={36} />
+        <span className="flex-1 min-w-0">
+          <span className="block" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--light)' }}>
+            {diaryLabel(dk)}
+          </span>
+          <span className="block truncate mt-0.5" style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+            {diary[dk].text.split('\n')[0] || '—'}
+          </span>
+        </span>
+        {diary[dk].therapy && (
+          <span
+            className="flex-none flex items-center gap-1 px-1.5 py-0.5 rounded-md"
+            style={{ background: 'var(--surface-2)', fontSize: 10, color: 'var(--muted)' }}
+          >
+            <Stethoscope size={10} strokeWidth={1.8} /> терапия
+          </span>
+        )}
+      </span>
+      <div className="flex flex-wrap items-center gap-1.5 mt-2">
+        <EmotionChips tags={diary[dk].emotions} onClick={onEditEmotion} />
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onAddEmotion()
+          }}
+          className="flex-none grid place-items-center rounded-full"
+          style={{ width: 18, height: 18, background: 'var(--surface-2)', color: 'var(--muted)' }}
+          title="Добавить эмоцию"
+        >
+          <Plus size={12} strokeWidth={2} />
+        </button>
+      </div>
+    </button>
   )
 }
 
@@ -632,5 +1006,38 @@ function Empty({ text }: { text: string }) {
     <p className="py-10 text-center" style={{ fontSize: 13, color: 'var(--muted)' }}>
       {text}
     </p>
+  )
+}
+
+function EmotionChips({ tags, onClick }: { tags?: EmotionTag[]; onClick: (tag: EmotionTag) => void }) {
+  if (!tags?.length) return null
+  return (
+    <>
+      {tags.map((tag) => {
+        const color = plutchikColor(tag.emotion)
+        return (
+          <button
+            key={tag.id}
+            onClick={(e) => {
+              e.stopPropagation()
+              onClick(tag)
+            }}
+            className="flex items-center gap-1 px-2 py-0.5 rounded-full"
+            style={{ background: color + '1a', border: `1px solid ${color}`, fontSize: 11, color: 'var(--text)' }}
+          >
+            <span style={{ color }}>{emotionName(tag.emotion)}</span>
+            <span className="px-1 rounded" style={{ background: color, color: '#fff', fontSize: 9, fontWeight: 700 }}>
+              {tag.level}
+            </span>
+            {tag.feelings && tag.feelings.length > 0 && (
+              <span className="opacity-75">· {tag.feelings.map((f) => `${f.name}(${f.level})`).join(', ')}</span>
+            )}
+            {tag.sensations && tag.sensations.length > 0 && (
+              <span className="opacity-75">· {tag.sensations.map((s) => `${s.name}(${s.level})`).join(', ')}</span>
+            )}
+          </button>
+        )
+      })}
+    </>
   )
 }

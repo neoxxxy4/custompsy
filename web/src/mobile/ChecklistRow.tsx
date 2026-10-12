@@ -1,5 +1,5 @@
-import { useRef } from 'react'
-import { ChevronDown, ListChecks } from 'lucide-react'
+import { useRef, type CSSProperties, type ReactNode } from 'react'
+import { ChevronDown, ListChecks, type LucideIcon } from 'lucide-react'
 import { useDragList } from './useDragList'
 import { MCheck } from './ui'
 
@@ -10,10 +10,21 @@ export interface ChecklistInst {
   items: { id: string; text: string; done: boolean; status?: 'plan' | 'work' }[]
 }
 
+// длинный текст пункта переносится до 3 строк, дальше — многоточие
+const CLAMP3: CSSProperties = {
+  display: '-webkit-box',
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+  wordBreak: 'break-word',
+}
+
 // строка чек-листа с аккордеоном: иконка + название + прогресс-бар + счётчик + chevron.
 // раскрытие — пункты с чекбоксами (отметки пишутся сразу).
 // опционально (мобильное «Сегодня»): readOnly, drag-сортировка пунктов,
-// long-press по пункту (action-sheet), инлайн-редактирование.
+// long-press по пункту (action-sheet), инлайн-редактирование,
+// удержание пункта над пунктом (onMergeItem — группировка в подблок),
+// children — вложенные подблоки внутри раскрытой области.
 export default function ChecklistRow({
   inst,
   expanded,
@@ -26,9 +37,13 @@ export default function ChecklistRow({
   onEditItem,
   onEditItemEnd,
   onReorderItem,
+  onMergeItem,
   editTitle,
   onEditTitle,
   onEditTitleEnd,
+  children,
+  icon,
+  stat,
 }: {
   inst: ChecklistInst
   expanded: boolean
@@ -41,14 +56,19 @@ export default function ChecklistRow({
   onEditItem?: (itemId: string, text: string) => void
   onEditItemEnd?: () => void
   onReorderItem?: (from: number, to: number) => void
+  onMergeItem?: (from: number, to: number) => void
   editTitle?: boolean
   onEditTitle?: (text: string) => void
   onEditTitleEnd?: () => void
+  children?: ReactNode
+  icon?: LucideIcon // другая иконка плитки (например, Target у целей)
+  stat?: { done: number; total: number } // внешний счёт: при «Скрыть выполненные» показываем полные n/m
 }) {
-  const done = inst.items.filter((i) => i.done).length
-  const total = inst.items.length
+  const done = stat?.done ?? inst.items.filter((i) => i.done).length
+  const total = stat?.total ?? inst.items.length
   const pct = total ? done / total : 0
   const color = inst.color ?? 'var(--ring-checklists)'
+  const Icon = icon ?? ListChecks
 
   const dblTap = useRef<Record<string, number>>({})
   const tapRow = (id: string) => {
@@ -67,13 +87,14 @@ export default function ChecklistRow({
       const it = inst.items[index]
       if (it) onItemLongPress?.(it.id)
     },
+    onMerge: onMergeItem,
   })
 
   return (
     <div>
       <div onClick={onToggle} role="button" className="no-select w-full flex items-center gap-3 py-2.5 text-left">
         <span className="grid place-items-center rounded-lg flex-none" style={{ width: 32, height: 32, background: color }}>
-          <ListChecks size={16} strokeWidth={1.8} style={{ color: 'var(--on-fill)' }} />
+          <Icon size={16} strokeWidth={1.8} style={{ color: 'var(--on-fill)' }} />
         </span>
         <span className="flex-1 min-w-0">
           {editTitle && !readOnly ? (
@@ -152,7 +173,9 @@ export default function ChecklistRow({
                 ) : (
                   <span
                     onClick={() => tapRow(it.id)}
+                    className="flex-1 min-w-0"
                     style={{
+                      ...CLAMP3,
                       fontSize: 13,
                       color: it.done ? 'var(--muted)' : 'var(--light)',
                       textDecoration: it.done ? 'line-through' : 'none',
@@ -165,6 +188,7 @@ export default function ChecklistRow({
               </div>
               )
             })}
+            {children}
           </div>
         </div>
       </div>

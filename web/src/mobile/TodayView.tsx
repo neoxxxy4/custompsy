@@ -1,17 +1,28 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  type TouchEvent as ReactTouchEvent,
+} from 'react'
 import {
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   CircleCheck,
-  GripVertical,
+  Columns2,
+  FolderInput,
+  ListChecks,
   ListOrdered,
   ListTodo,
+  ListTree,
   MoreHorizontal,
   Plus,
-  SlidersHorizontal,
+  Rows2,
   Target,
   Clock,
+  type LucideIcon,
 } from 'lucide-react'
 import {
   type BlockDef,
@@ -19,8 +30,11 @@ import {
   type BlockList,
   type ListRecord,
   type TodayData,
+  BRICKGAME_DATE,
+  brickgameBlockLists,
+  brickgameFlagKey,
   moveItem,
-  seedBlockDefs,
+  seedDayBlocks,
   seedTodayData,
   uid,
   useLS,
@@ -45,15 +59,84 @@ type SheetTarget =
 type EditItem = { blockId: string; itemId: string; field: 'time' | 'text' }
 type EditListItem = { blockId: string; listId: string; itemId: string }
 type EditListTitle = { blockId: string; listId: string }
+// источник переноса пункта: из корня блока (listId=null) или из под-списка
+type MoveSrc = { blockId: string; listId: string | null; itemId: string }
 
-type Win = 'day' | 'kanban' | 'progress'
+type Win = 'day' | 'progress' | 'kanban'
 const WINS: { id: Win; label: string }[] = [
   { id: 'day', label: 'День' },
-  { id: 'kanban', label: 'Канбан' },
   { id: 'progress', label: 'Прогресс' },
+  { id: 'kanban', label: 'Канбан' },
 ]
 
 const EMPTY_BLOCK: TodayData[string] = { items: [], lists: [] }
+
+// длинный текст пункта переносится до 3 строк, дальше — многоточие
+const CLAMP3: CSSProperties = {
+  display: '-webkit-box',
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+  wordBreak: 'break-word',
+}
+
+// константный блок целей — есть всегда, даже если его def удалили
+const GOALS_DEF: BlockDef = {
+  id: 'goals',
+  title: 'Цели',
+  withTime: false,
+  inDashboard: true,
+  allow: { items: true, checklists: false, lists: false, sub: false },
+}
+
+// группы пунктов: «в работе» ↑, план, выполненные ↓
+const groupOf = (x: BlockItem): 'work' | 'plan' | 'done' => (x.done ? 'done' : x.status === 'work' ? 'work' : 'plan')
+const rankOf = (x: BlockItem) => (x.done ? 2 : x.status === 'work' ? 0 : 1)
+// умная сортировка с памятью: внутри группы пункт встаёт на запомненное место
+// (pos[группа]); без памяти — в конец группы; равные — по текущему порядку (стабильно)
+const sortItems = (items: BlockItem[]): BlockItem[] =>
+  items
+    .map((x, i) => ({ x, i }))
+    .sort((a, b) => {
+      const ra = rankOf(a.x)
+      const rb = rankOf(b.x)
+      if (ra !== rb) return ra - rb
+      const pa = a.x.pos?.[groupOf(a.x)] ?? Number.POSITIVE_INFINITY
+      const pb = b.x.pos?.[groupOf(b.x)] ?? Number.POSITIVE_INFINITY
+      return pa - pb || a.i - b.i
+    })
+    .map((p) => p.x)
+// ручной drag запоминается: перезаписываем pos каждой группы по текущему порядку
+const stampPos = (items: BlockItem[]): BlockItem[] => {
+  const c = { work: 0, plan: 0, done: 0 }
+  return items.map((x) => {
+    const g = groupOf(x)
+    return { ...x, pos: { ...x.pos, [g]: c[g]++ } }
+  })
+}
+
+// «Скрыть выполненные»: жесты (drag/merge/long-press) приходят с индексами ВИДИМОГО
+// списка — переводим их в индексы полного массива по id
+const visItems = (items: BlockItem[], hideDone?: boolean) => (hideDone ? items.filter((x) => !x.done) : items)
+const fullIdx = (full: BlockItem[], vis: BlockItem[], i: number) => full.findIndex((x) => x.id === vis[i]?.id)
+
+// рекурсивные обходчики дерева под-списков (подблоки вкладываются друг в друга)
+const mapListDeep = (lists: BlockList[], id: string, fn: (l: BlockList) => BlockList): BlockList[] =>
+  lists.map((l) => (l.id === id ? fn(l) : l.lists ? { ...l, lists: mapListDeep(l.lists, id, fn) } : l))
+const findListDeep = (lists: BlockList[], id: string): BlockList | null => {
+  for (const l of lists) {
+    if (l.id === id) return l
+    const hit = l.lists ? findListDeep(l.lists, id) : null
+    if (hit) return hit
+  }
+  return null
+}
+// пункты для статистики/канбана: чек-листы и подблоки на любой глубине (нумерованные списки не считаются)
+const collectTaskItems = (lists: BlockList[]): { listId: string; listTitle: string; item: BlockItem }[] =>
+  lists.flatMap((l) => [
+    ...(l.kind === 'list' ? [] : l.items.map((item) => ({ listId: l.id, listTitle: l.title, item }))),
+    ...collectTaskItems(l.lists ?? []),
+  ])
 
 // цвета и иконки колец дашборда — цикл по четырём существующим
 const RING_COLORS = ['var(--ring-goals)', 'var(--ring-schedule)', 'var(--ring-checklists)', 'var(--ring-tasks)']
@@ -63,7 +146,6 @@ const fmtKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
 const WD_SHORT = ['ВС', 'ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ']
-const MO_SHORT = ['ЯНВ', 'ФЕВ', 'МАР', 'АПР', 'МАЯ', 'ИЮН', 'ИЮЛ', 'АВГ', 'СЕН', 'ОКТ', 'НОЯ', 'ДЕК']
 
 export default function TodayView() {
   const [offset, setOffset] = useState(0)
@@ -75,12 +157,24 @@ export default function TodayView() {
   }, [offset])
   const dateKey = fmtKey(viewDate)
   const wdName = WD[viewDate.getDay()]
-  const readOnly = offset === -1
+  const readOnly = offset < 0
 
-  const [defs, setDefs] = useLS<BlockDef[]>('aod2-today-blocks', seedBlockDefs())
+  // блоки — отдельные сущности каждого дня: добавленный блок живёт только в этой дате
+  const [defs, setDefs] = useLS<BlockDef[]>(`aod2-today-blocks-${dateKey}`, seedDayBlocks())
+  // вид экрана «Прогресс»: список блоков / доска с плашками (как папки в Telegram)
+  const [viewMode, setViewMode] = useLS<'list' | 'board'>('aod2-today-viewmode', 'list')
   const [listrecs] = useLS<ListRecord[]>('aod2-listrecs', [])
   // readOnly-день (вчера): мигрируем только то, что было в legacy, без дефолтов
   const [data, setData] = useLS<TodayData>(`aod2-today-data-${dateKey}`, seedTodayData(dateKey, wdName, readOnly))
+
+  // одноразово: на BRICKGAME_DATE блок «Чек-листы» — только блоки BrickGame v2.0
+  useEffect(() => {
+    if (dateKey !== BRICKGAME_DATE || readOnly) return
+    const flag = brickgameFlagKey(dateKey, 'blocks')
+    if (localStorage.getItem(flag)) return
+    localStorage.setItem(flag, '1')
+    setData((d) => ({ ...d, lists: { items: [], lists: brickgameBlockLists() } }))
+  }, [dateKey, readOnly, setData])
 
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [openLists, setOpenLists] = useState<string[]>([])
@@ -88,33 +182,49 @@ export default function TodayView() {
   const [editListItem, setEditListItem] = useState<EditListItem | null>(null)
   const [editListTitle, setEditListTitle] = useState<EditListTitle | null>(null)
   const [sheet, setSheet] = useState<SheetTarget | null>(null)
-  const [pickList, setPickList] = useState<{ def: BlockDef; kind: BlockList['kind'] } | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // PickListSheet работает только с записями «Записей»: чек-лист или нумерованный список (подблоки создаются напрямую)
+  const [pickList, setPickList] = useState<{ def: BlockDef; kind: 'checklist' | 'list' } | null>(null)
+  const [ringsOpen, setRingsOpen] = useState(false)
+  const [goalsOpen, setGoalsOpen] = useState(true)
+  const [moveReq, setMoveReq] = useState<MoveSrc | null>(null)
+  // режим «Доска»: какая плашка-блок сейчас на экране
+  const [boardId, setBoardId] = useState<string | null>(null)
   const [menuBlockId, setMenuBlockId] = useState<string | null>(null)
-  const [editDefId, setEditDefId] = useState<string | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
   const toast = useToast()
 
   const cardEls = useRef<Record<string, HTMLElement | null>>({})
-  const anyDrag = useRef<Record<string, boolean>>({})
-  const swipe = useRef<{ x: number; y: number } | null>(null)
 
   // ─── данные блоков ───
   const blockData = (id: string) => data[id] ?? EMPTY_BLOCK
 
-  // прогресс блока = пункты + пункты чек-листов; нумерованные списки не считаются
+  // прогресс блока = пункты + пункты чек-листов/подблоков (на любой глубине); нумерованные списки не считаются
   const blockStat = (id: string) => {
     const b = blockData(id)
-    const all = [...b.items, ...b.lists.filter((l) => l.kind === 'checklist').flatMap((l) => l.items)]
+    const all = [...b.items, ...collectTaskItems(b.lists).map((p) => p.item)]
     return { done: all.filter((i) => i.done).length, total: all.length }
   }
 
+  // после любой правки пункты пересортировываются: «в работе» ↑, выполненные ↓.
+  // исключения: блоки с временем (там порядок по часам) и нумерованные списки (порядок = нумерация)
   const patchBlockData = (blockId: string, fn: (b: TodayData[string]) => TodayData[string]) =>
-    setData((d) => ({ ...d, [blockId]: fn(d[blockId] ?? { items: [], lists: [] }) }))
+    setData((d) => {
+      const next = fn(d[blockId] ?? { items: [], lists: [] })
+      const withTime = defs.find((x) => x.id === blockId)?.withTime
+      return { ...d, [blockId]: withTime ? next : { ...next, items: sortItems(next.items) } }
+    })
   const patchItem = (blockId: string, itemId: string, patch: Partial<BlockItem>) =>
     patchBlockData(blockId, (b) => ({ ...b, items: b.items.map((x) => (x.id === itemId ? { ...x, ...patch } : x)) }))
+  // под-список ищется на любой глубине; пункты чек-листов и подблоков пересортировываются,
+  // нумерованные списки — нет (порядок = нумерация)
   const patchList = (blockId: string, listId: string, fn: (l: BlockList) => BlockList) =>
-    patchBlockData(blockId, (b) => ({ ...b, lists: b.lists.map((l) => (l.id === listId ? fn(l) : l)) }))
+    patchBlockData(blockId, (b) => ({
+      ...b,
+      lists: mapListDeep(b.lists, listId, (l) => {
+        const next = fn(l)
+        return next.kind === 'list' ? next : { ...next, items: sortItems(next.items) }
+      }),
+    }))
 
   const addItem = (def: BlockDef) => {
     const it: BlockItem = { id: uid(), text: '', done: false, ...(def.withTime ? { time: '12:00' } : {}) }
@@ -132,36 +242,115 @@ export default function TodayView() {
 
   // вставка копии сохранённой записи: пункты свежие (done сброшен), id новые
   const insertFromRecord = (def: BlockDef, rec: ListRecord) => {
+    const cloneList = (l: BlockList): BlockList => ({
+      id: uid(),
+      kind: l.kind,
+      title: l.title,
+      items: l.items.map((it) => ({ id: uid(), text: it.text, done: false })),
+      lists: l.lists?.map(cloneList),
+    })
     const lst: BlockList = {
       id: uid(),
       kind: rec.kind,
       title: rec.title,
       items: rec.items.map((it) => ({ id: uid(), text: it.text, done: false })),
+      lists: rec.lists?.map(cloneList),
     }
     patchBlockData(def.id, (b) => ({ ...b, lists: [...b.lists, lst] }))
     openBlock(def.id)
     expandList(lst.id)
   }
 
+  // подблок: создаётся внутри блока (parentListId=null) или внутри чек-листа/подблока;
+  // название не обязательно — поэтому инлайн-инпут не открываем
+  const addSubBlock = (blockId: string, parentListId: string | null) => {
+    const lst: BlockList = { id: uid(), kind: 'sub', title: '', items: [] }
+    if (parentListId) {
+      patchList(blockId, parentListId, (l) => ({ ...l, lists: [...(l.lists ?? []), lst] }))
+      expandList(parentListId)
+    } else {
+      patchBlockData(blockId, (b) => ({ ...b, lists: [...b.lists, lst] }))
+      openBlock(blockId)
+    }
+    expandList(lst.id)
+  }
+
+  // удержание поднятого пункта над другим ~700ms → оба уезжают в новый подблок
+  // (наведённый первым); пункты исчезают из исходного контейнера
+  const mergeIntoSub = (blockId: string, listId: string | null, from: number, to: number) => {
+    const bd = blockData(blockId)
+    const container = listId ? findListDeep(bd.lists, listId) : null
+    const items = listId ? (container?.items ?? []) : bd.items
+    const hovered = items[to]
+    const dragged = items[from]
+    if (!hovered || !dragged) return
+    const sub: BlockList = { id: uid(), kind: 'sub', title: '', items: [hovered, dragged] }
+    const drop = (xs: BlockItem[]) => xs.filter((x) => x.id !== hovered.id && x.id !== dragged.id)
+    if (listId) patchList(blockId, listId, (l) => ({ ...l, items: drop(l.items), lists: [...(l.lists ?? []), sub] }))
+    else patchBlockData(blockId, (b) => ({ ...b, items: drop(b.items), lists: [...b.lists, sub] }))
+    if (listId) expandList(listId)
+    expandList(sub.id)
+    toast.show('Создан подблок')
+  }
+
+  // перенос пункта из moveReq в выбранный контейнер (блок / чек-лист / подблок)
+  const moveItemTo = (dstBlockId: string, dstListId: string | null) => {
+    const src = moveReq
+    if (!src) return
+    if (src.blockId === dstBlockId && src.listId === dstListId) {
+      setMoveReq(null)
+      return
+    }
+    const srcB = blockData(src.blockId)
+    const srcList = src.listId ? findListDeep(srcB.lists, src.listId) : null
+    const it = (src.listId ? srcList?.items : srcB.items)?.find((x) => x.id === src.itemId)
+    if (!it) {
+      setMoveReq(null)
+      return
+    }
+    if (src.listId) patchList(src.blockId, src.listId, (l) => ({ ...l, items: l.items.filter((x) => x.id !== it.id) }))
+    else patchBlockData(src.blockId, (b) => ({ ...b, items: b.items.filter((x) => x.id !== it.id) }))
+    if (dstListId) patchList(dstBlockId, dstListId, (l) => ({ ...l, items: [...l.items, it] }))
+    else patchBlockData(dstBlockId, (b) => ({ ...b, items: [...b.items, it] }))
+    setMoveReq(null)
+  }
+
   // ─── настройка блоков (глобально, не зависит от дня) ───
   const patchDef = (id: string, patch: Partial<BlockDef>) =>
     setDefs((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)))
   const deleteDef = (id: string) => setDefs((ds) => ds.filter((d) => d.id !== id))
-  const addBlockDef = () => {
+  // новый блок — крайний снизу, но перед полностью выполненными; возвращает id (для режима «Доска»)
+  const addBlockDef = (): string => {
     const def: BlockDef = {
       id: uid(),
       title: '',
       withTime: false,
       inDashboard: true,
-      allow: { items: true, checklists: false, lists: false },
+      allow: { items: true, checklists: false, lists: false, sub: true },
     }
-    setDefs((ds) => [...ds, def])
-    setEditDefId(def.id)
+    setDefs((ds) => {
+      const idx = ds.findIndex((d) => {
+        const s = blockStat(d.id)
+        return s.total > 0 && s.done === s.total
+      })
+      if (idx === -1) return [...ds, def]
+      const next = [...ds]
+      next.splice(idx, 0, def)
+      return next
+    })
+    return def.id
   }
 
   const jumpTo = (id: string) => {
     setWin('progress')
     setOpen((o) => ({ ...o, [id]: true }))
+    if (viewMode === 'board') {
+      // в режиме доски просто переключаем активную плашку
+      setBoardId(id)
+      setFlash(id)
+      window.setTimeout(() => setFlash((f) => (f === id ? null : f)), 600)
+      return
+    }
     window.setTimeout(() => {
       cardEls.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       setFlash(id)
@@ -169,33 +358,14 @@ export default function TodayView() {
     }, 60)
   }
 
-  // ─── свайпы между окнами: влево — следующее, вправо — предыдущее ───
+  // ─── смена дня: стрелки датабара или полоса недели ───
   const changeOffset = (next: number) => {
-    setOffset(Math.max(-1, Math.min(1, next)))
+    setOffset(next)
     setSheet(null)
     setEditItem(null)
     setEditListItem(null)
     setEditListTitle(null)
     setFlash(null)
-  }
-  const winStep = (dir: 1 | -1) => {
-    const i = WINS.findIndex((w) => w.id === win)
-    const n = Math.max(0, Math.min(WINS.length - 1, i + dir))
-    setWin(WINS[n].id)
-  }
-  const onTouchStart = (e: React.TouchEvent) => {
-    const t = e.touches[0]
-    swipe.current = { x: t.clientX, y: t.clientY }
-  }
-  const onTouchEnd = (e: React.TouchEvent) => {
-    const s = swipe.current
-    swipe.current = null
-    if (!s) return
-    if (blocksDrag.dragging || Object.values(anyDrag.current).some(Boolean)) return
-    const t = e.changedTouches[0]
-    const dx = t.clientX - s.x
-    const dy = t.clientY - s.y
-    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) winStep(dx < 0 ? 1 : -1)
   }
 
   const openBlock = (b: string) => setOpen((o) => ({ ...o, [b]: true }))
@@ -205,11 +375,40 @@ export default function TodayView() {
   const toggleList = (id: string) =>
     setOpenLists((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]))
 
-  // ─── drag-сортировка блоков в шторке «Блоки экрана» ───
-  const blocksDrag = useDragList({
-    onReorder: (from, to) => setDefs((ds) => moveItem(ds, from, to)),
+  // ─── drag-сортировка блоков прямо в дашборде (жест на СВЁРНУТОМ блоке) ───
+  const progDrag = useDragList({
+    disabled: readOnly,
+    onReorder: (from, to) => {
+      const a = progressDefs[from]
+      const b = progressDefs[to]
+      if (!a || !b) return
+      setDefs((ds) => {
+        const fi = ds.findIndex((d) => d.id === a.id)
+        const ti = ds.findIndex((d) => d.id === b.id)
+        if (fi < 0 || ti < 0) return ds
+        return moveItem(ds, fi, ti)
+      })
+    },
     onLongPress: () => {},
   })
+
+  // свайп влево/вправо по области доски — переключение плашек
+  const swipeX = useRef<number | null>(null)
+  const boardSwipe = {
+    onTouchStart: (e: ReactTouchEvent) => {
+      swipeX.current = e.touches[0]?.clientX ?? null
+    },
+    onTouchEnd: (e: ReactTouchEvent) => {
+      if (swipeX.current == null) return
+      const dx = (e.changedTouches[0]?.clientX ?? swipeX.current) - swipeX.current
+      swipeX.current = null
+      if (Math.abs(dx) < 60) return
+      const ids = progressDefs.map((d) => d.id)
+      const cur = ids.indexOf(boardActive?.id ?? '')
+      const next = cur + (dx < 0 ? 1 : -1)
+      if (cur >= 0 && next >= 0 && next < ids.length) setBoardId(ids[next])
+    },
+  }
 
   // ─── action-sheet по long-press ───
   const sheetRename = () => {
@@ -252,9 +451,15 @@ export default function TodayView() {
   })
   const tlEntryKey = (e: TimelineEntry) => e.item.id
   const addTimelineItem = (time: string): string => {
-    const def = schedDefs[0]
+    let def = schedDefs[0]
+    // блока расписания нет (удалён/старая схема) — создаём его для этого дня
+    if (!def) {
+      def = { id: uid(), title: 'Расписание', withTime: true, inDashboard: false, allow: { items: true, checklists: false, lists: false, sub: false } }
+      const d = def
+      setDefs((ds) => [...ds, d])
+    }
     const it: BlockItem = { id: uid(), text: '', done: false, time, dur: 60 }
-    if (def) patchBlockData(def.id, (b) => ({ ...b, items: [...b.items, it] }))
+    patchBlockData(def.id, (b) => ({ ...b, items: [...b.items, it] }))
     return it.id
   }
 
@@ -263,17 +468,13 @@ export default function TodayView() {
     const bd = blockData(def.id)
     const color = RING_COLORS[defs.indexOf(def) % RING_COLORS.length]
     const direct = bd.items.map((item) => ({ blockId: def.id, item, badge: def.title || 'Блок', color }))
-    const fromLists = bd.lists
-      .filter((l) => l.kind === 'checklist')
-      .flatMap((l) =>
-        l.items.map((item) => ({
-          blockId: def.id,
-          listId: l.id,
-          item,
-          badge: l.title || def.title || 'Чек-лист', // контейнер = сам чек-лист
-          color,
-        })),
-      )
+    const fromLists = collectTaskItems(bd.lists).map((p) => ({
+      blockId: def.id,
+      listId: p.listId,
+      item: p.item,
+      badge: p.listTitle || def.title || 'Чек-лист', // контейнер = сам чек-лист/подблок
+      color,
+    }))
     return [...direct, ...fromLists]
   })
 
@@ -310,50 +511,217 @@ export default function TodayView() {
     return it.id
   }
 
-  const title = offset === -1 ? 'Вчера' : offset === 1 ? 'Завтра' : 'Сегодня'
-  const dateLabel = `${WD_SHORT[viewDate.getDay()]} ${viewDate.getDate()} ${MO_SHORT[viewDate.getMonth()]}`
+  // куда можно перенести пункт: блоки с включёнными «Пунктами» + чек-листы и подблоки на любой глубине
+  const moveDests = kanbanDefs.flatMap((d) => {
+    const rows: { blockId: string; listId: string | null; label: string; depth: number }[] = []
+    if (d.allow.items) rows.push({ blockId: d.id, listId: null, label: d.title || 'Блок', depth: 0 })
+    const walk = (lists: BlockList[], depth: number) =>
+      lists.forEach((l) => {
+        if (l.kind === 'list') return // в нумерованные списки не переносим: порядок = нумерация
+        rows.push({ blockId: d.id, listId: l.id, label: l.title || (l.kind === 'sub' ? 'Подблок' : 'Чек-лист'), depth })
+        walk(l.lists ?? [], depth + 1)
+      })
+    walk(blockData(d.id).lists, 1)
+    return rows
+  })
+
+  // дополнительные действия action-sheet: перенос пункта / конвертация чек-лист ↔ подблок
+  const sheetExtras = (t: SheetTarget): { icon: LucideIcon; label: string; onClick: () => void }[] => {
+    if (t.kind === 'item' || t.kind === 'listItem') {
+      const src: MoveSrc =
+        t.kind === 'item'
+          ? { blockId: t.blockId, listId: null, itemId: t.itemId }
+          : { blockId: t.blockId, listId: t.listId, itemId: t.itemId }
+      return [{ icon: FolderInput, label: 'Переместить в…', onClick: () => setMoveReq(src) }]
+    }
+    const l = findListDeep(blockData(t.blockId).lists, t.listId)
+    if (!l || l.kind === 'list') return []
+    return [
+      {
+        icon: l.kind === 'checklist' ? ListTree : ListChecks,
+        label: l.kind === 'checklist' ? 'Сделать подблоком' : 'Сделать чек-листом',
+        onClick: () =>
+          patchList(t.blockId, t.listId, (x) => ({ ...x, kind: x.kind === 'checklist' ? 'sub' : 'checklist' })),
+      },
+    ]
+  }
+
+  // единственный круг «День» считает ВСЕ пункты дня: цели, расписание, чек-листы
+  const allDefs = defs.some((d) => d.id === 'goals') ? defs : [...defs, GOALS_DEF]
+  const dayStat = allDefs.reduce(
+    (acc, d) => {
+      const s = blockStat(d.id)
+      return { done: acc.done + s.done, total: acc.total + s.total }
+    },
+    { done: 0, total: 0 },
+  )
+  // цели — константный блок: живёт даже если его def удалили из настроек
+  const goalsDef = defs.find((d) => d.id === 'goals') ?? GOALS_DEF
+  const goalsStat = blockStat('goals')
+  const isDoneDef = (d: BlockDef) => {
+    const s = blockStat(d.id)
+    return s.total > 0 && s.done === s.total
+  }
+  // порядок в окне «Прогресс»: активные блоки, выполненные — внизу;
+  // цели отдельным блоком не выводятся — они пунктами внутри карточки «Прогресс дня»
+  const restDefs = kanbanDefs.filter((d) => d.id !== 'goals')
+  const progressDefs = [...restDefs.filter((d) => !isDoneDef(d)), ...restDefs.filter(isDoneDef)]
+  // активная плашка режима «Доска»
+  const boardActive = (boardId && progressDefs.find((d) => d.id === boardId)) || progressDefs[0] || null
+  // дополнительные кольца (свернуты под полосочкой): блоки с «Показывать в дашборде», кроме целей
+  const extraRings = dashBlocks
+    .filter((d) => d.id !== 'goals')
+    .map((d) => ({ id: d.id, label: d.title || 'Блок', ...blockStat(d.id) }))
+
+  // карточка блока прогресса; dragBind — жест перестановки (только свёрнутые, режим «Список»)
+  const renderBlock = (
+    def: BlockDef,
+    dragBind?: {
+      refEl: (el: HTMLDivElement | null) => void
+      handlers: {
+        onTouchStart?: (e: ReactTouchEvent<HTMLElement>) => void
+        onMouseDown?: (e: ReactMouseEvent<HTMLElement>) => void
+      }
+      style: CSSProperties
+    },
+  ) => {
+    const bd = blockData(def.id)
+    const st = blockStat(def.id)
+    const hide = !!def.hideDone
+    const vis = visItems(bd.items, hide)
+    return (
+      <div
+        // no-select обязателен: без него Android WebView на long-press начинает
+        // нативное выделение и шлёт touchcancel — drag блока умирает (в браузере не воспроизводится)
+        className="mb-3 no-select"
+        key={def.id}
+        ref={(el) => {
+          cardEls.current[def.id] = el
+          dragBind?.refEl(el)
+        }}
+        {...(dragBind?.handlers ?? {})}
+        style={{ WebkitTouchCallout: 'none', ...dragBind?.style }}
+      >
+        <BlockShell
+          title={def.title || 'Блок'}
+          count={st.total ? `${st.done}/${st.total}` : '—'}
+          expanded={!!open[def.id]}
+          flash={flash === def.id}
+          readOnly={readOnly}
+          progress={st.total ? st.done / st.total : 0}
+          onToggle={() => toggleBlock(def.id)}
+          onAdd={readOnly || !def.allow.items ? undefined : () => addItem(def)}
+          // меню только для реальных def: константные «Цели» без def не настраиваются
+          onMenu={readOnly || !defs.some((d) => d.id === def.id) ? undefined : () => setMenuBlockId(def.id)}
+        >
+          {vis.length === 0 && bd.lists.length === 0 && <EmptyDash />}
+          {vis.length > 0 && (
+            <ItemsSection
+              blockId={def.id}
+              withTime={def.withTime}
+              items={vis}
+              readOnly={readOnly}
+              editItem={editItem}
+              onEditItem={setEditItem}
+              onPatchItem={(itemId, patch) => patchItem(def.id, itemId, patch)}
+              onReorder={(from, to) =>
+                patchBlockData(def.id, (b) => {
+                  const v = visItems(b.items, hide)
+                  return { ...b, items: stampPos(moveItem(b.items, fullIdx(b.items, v, from), fullIdx(b.items, v, to))) }
+                })
+              }
+              onLongPressItem={(itemId, t) => setSheet({ kind: 'item', blockId: def.id, itemId, title: t })}
+              onMerge={(from, to) => {
+                const f = fullIdx(bd.items, vis, from)
+                const t = fullIdx(bd.items, vis, to)
+                if (f >= 0 && t >= 0) mergeIntoSub(def.id, null, f, t)
+              }}
+              onItemDblTap={(itemId) => {
+                const it = bd.items.find((x) => x.id === itemId)
+                if (!it) return
+                // двойной тап: в «В работе» и обратно в «План»
+                patchItem(def.id, itemId, it.status === 'work' && !it.done ? { status: 'plan' } : { done: false, status: 'work' })
+              }}
+            />
+          )}
+          {bd.lists.length > 0 && (
+            <BlockLists
+              blockId={def.id}
+              lists={bd.lists}
+              readOnly={readOnly}
+              openLists={openLists}
+              onToggleList={toggleList}
+              onPatchList={(listId, fn) => patchList(def.id, listId, fn)}
+              onReorderLists={(from, to) =>
+                patchBlockData(def.id, (b) => ({ ...b, lists: moveItem(b.lists, from, to) }))
+              }
+              onLongPressList={(listId, t) => setSheet({ kind: 'list', blockId: def.id, listId, title: t })}
+              onLongPressListItem={(listId, itemId, t) =>
+                setSheet({ kind: 'listItem', blockId: def.id, listId, itemId, title: t })
+              }
+              onItemDblTap={(listId, itemId) => {
+                const lst = findListDeep(bd.lists, listId)
+                const it = lst?.items.find((x) => x.id === itemId)
+                if (!it) return
+                patchList(def.id, listId, (l) => ({
+                  ...l,
+                  items: l.items.map((x) =>
+                    x.id === itemId
+                      ? it.status === 'work' && !it.done
+                        ? { ...x, status: 'plan' as const }
+                        : { ...x, done: false, status: 'work' as const }
+                      : x,
+                  ),
+                }))
+              }}
+              editListTitle={editListTitle}
+              onEditListTitle={setEditListTitle}
+              editListItem={editListItem}
+              onEditListItem={setEditListItem}
+              onAddListItem={(listId) => {
+                const it: BlockItem = { id: uid(), text: '', done: false }
+                patchList(def.id, listId, (l) => ({ ...l, items: [...l.items, it] }))
+                setEditListItem({ blockId: def.id, listId, itemId: it.id })
+                expandList(listId)
+              }}
+              onAddSubList={(parentListId) => addSubBlock(def.id, parentListId)}
+              onMergeItem={(listId, from, to) => mergeIntoSub(def.id, listId, from, to)}
+              hideDone={hide}
+            />
+          )}
+          {!readOnly && def.allow.items && (
+            <AddRow label="добавить пункт" onClick={() => addItem(def)} />
+          )}
+          {!readOnly && def.allow.sub && (
+            <AddRow label="добавить подблок" onClick={() => addSubBlock(def.id, null)} />
+          )}
+          {!readOnly && def.allow.checklists && (
+            <AddRow label="добавить чек-лист" onClick={() => setPickList({ def, kind: 'checklist' })} />
+          )}
+          {!readOnly && def.allow.lists && (
+            <AddRow label="добавить список" onClick={() => setPickList({ def, kind: 'list' })} />
+          )}
+        </BlockShell>
+      </div>
+    )
+  }
 
   return (
-    <div className="px-4 pt-5 pb-28" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-      {/* компактная дата-бар: стрелки дней + шестерёнка блоков */}
-      <header className="flex items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-1 min-w-0">
-          <button
-            onClick={() => changeOffset(offset - 1)}
-            disabled={offset <= -1}
-            className="p-1.5 disabled:opacity-30"
-            title="Вчера"
-          >
-            <ChevronLeft size={18} strokeWidth={2} style={{ color: 'var(--muted)' }} />
-          </button>
-          <div className="text-center min-w-[120px]">
-            <div style={{ fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700, color: 'var(--light)', letterSpacing: '0.04em' }}>
-              {dateLabel}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-              {title}
-              {readOnly ? ' · только чтение' : ''}
-            </div>
-          </div>
-          <button
-            onClick={() => changeOffset(offset + 1)}
-            disabled={offset >= 1}
-            className="p-1.5 disabled:opacity-30"
-            title="Завтра"
-          >
-            <ChevronRight size={18} strokeWidth={2} style={{ color: 'var(--muted)' }} />
-          </button>
-        </div>
-        <button onClick={() => setSettingsOpen(true)} title="Блоки экрана" className="p-1">
-          <SlidersHorizontal size={20} strokeWidth={1.7} style={{ color: 'var(--muted)' }} />
-        </button>
-      </header>
-
-      {/* сегмент окон: День / Канбан / Прогресс */}
+    <div className="px-4 pt-5 pb-28">
+      {/* закреплённая шапка (как в Telegram): полоса недели + сегмент окон
+          остаются на месте при прокрутке вниз */}
       <div
-        className="grid grid-cols-3 gap-1 rounded-xl p-1 mb-3"
-        style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+        className="sticky top-0 z-30 -mx-4 px-4 pt-1 pb-1"
+        style={{ background: 'color-mix(in srgb, var(--bg) 85%, transparent)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
       >
+        {/* календарь-полоса недели: тап — выбор дня, свайп — неделя ± */}
+        <WeekStrip viewDate={viewDate} onPick={changeOffset} />
+
+        {/* сегмент окон: День / Прогресс / Канбан (переключение только тапом) */}
+        <div
+          className="grid grid-cols-3 gap-1 rounded-xl p-1 mb-2"
+          style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+        >
         {WINS.map((w) => (
           <button
             key={w.id}
@@ -369,12 +737,42 @@ export default function TodayView() {
             {w.label}
           </button>
         ))}
+        </div>
       </div>
 
       <div key={`${dateKey}:${win}`} className="fadein">
-        {/* ─── окно ДЕНЬ: таймлайн расписания ─── */}
-        {win === 'day' &&
-          (schedDefs.length > 0 ? (
+        {/* ─── окно ДЕНЬ: цели дня + таймлайн расписания (всегда: часы + красная линия «сейчас») ─── */}
+        {win === 'day' && (
+          <>
+            {/* цели — те же пункты, что в блоке «Цели» на прогрессе: зачёркиваются везде сразу */}
+            <section
+              className="rounded-2xl px-3 py-2 mb-3"
+              style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+            >
+              <div className="flex items-center gap-2 px-1 py-1">
+                <Target size={15} strokeWidth={1.8} style={{ color: 'var(--ring-goals)' }} />
+                <span className="flex-1" style={{ fontSize: 13, fontWeight: 600, color: 'var(--light)' }}>
+                  Цели
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+                  {goalsStat.total ? `${goalsStat.done}/${goalsStat.total}` : '—'}
+                </span>
+              </div>
+              <ItemsSection
+                blockId="goals"
+                withTime={false}
+                items={blockData('goals').items}
+                readOnly={readOnly}
+                editItem={editItem}
+                onEditItem={setEditItem}
+                onPatchItem={(itemId, patch) => patchItem('goals', itemId, patch)}
+                onReorder={(from, to) =>
+                  patchBlockData('goals', (b) => ({ ...b, items: stampPos(moveItem(b.items, from, to)) }))
+                }
+                onLongPressItem={(itemId, t) => setSheet({ kind: 'item', blockId: 'goals', itemId, title: t })}
+              />
+              {!readOnly && <AddRow label="добавить цель" onClick={() => addItem(goalsDef)} />}
+            </section>
             <TimelineView
               entries={timelineEntries}
               readOnly={readOnly}
@@ -386,11 +784,8 @@ export default function TodayView() {
               }
               onAdd={addTimelineItem}
             />
-          ) : (
-            <p className="text-center py-10" style={{ fontSize: 13, color: 'var(--muted)' }}>
-              Нет блока расписания — добавь его через шестерёнку сверху
-            </p>
-          ))}
+          </>
+        )}
 
         {/* ─── окно КАНБАН ─── */}
         {win === 'kanban' && (
@@ -413,143 +808,172 @@ export default function TodayView() {
           />
         )}
 
-        {/* ─── окно ПРОГРЕСС: кольца + раскрывающиеся блоки ─── */}
+        {/* ─── окно ПРОГРЕСС: кольца + настройки блоков + раскрывающиеся блоки ─── */}
         {win === 'progress' && (
           <>
-            {dashBlocks.length > 0 && (
-              <section
-                className="rounded-2xl p-4 mb-3"
-                style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
-              >
-                <h2 className="mb-3" style={{ fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 600, color: 'var(--light)' }}>
-                  Прогресс дня
-                </h2>
-                <div className="flex justify-between px-1">
-                  {dashBlocks.map((def, di) => {
-                    const st = blockStat(def.id)
-                    const pct = st.total ? st.done / st.total : 0
-                    const color = RING_COLORS[di % RING_COLORS.length]
-                    const Icon = RING_ICONS[di % RING_ICONS.length]
+            <section
+              className="rounded-2xl px-3 py-2.5 mb-3"
+              style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+            >
+              {/* одна компактная строка: круг дня + счёт + цели (особый дефолтный чек-лист)
+                  + переключение вида список/доска; в свёрнутом виде карточка занимает минимум */}
+              <div className="flex items-start gap-2.5">
+                <span className="relative flex-none pt-0.5">
+                  <ProgressRing pct={dayStat.total ? dayStat.done / dayStat.total : 0} color="var(--accent)" size={44} />
+                  <span
+                    className="absolute inset-0 grid place-items-center"
+                    style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: 'var(--light)' }}
+                  >
+                    {Math.round((dayStat.total ? dayStat.done / dayStat.total : 0) * 100)}%
+                  </span>
+                </span>
+                <span className="flex-none pt-4" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
+                  {dayStat.done}/{dayStat.total}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <ChecklistRow
+                    inst={{ title: 'Цели', color: 'var(--ring-goals)', items: blockData('goals').items }}
+                    icon={Target}
+                    expanded={goalsOpen}
+                    onToggle={() => setGoalsOpen((v) => !v)}
+                    onToggleItem={(itemId) => {
+                      const it = blockData('goals').items.find((x) => x.id === itemId)
+                      if (it) patchItem('goals', itemId, { done: !it.done })
+                    }}
+                    onItemDblTap={(itemId) => {
+                      const it = blockData('goals').items.find((x) => x.id === itemId)
+                      if (!it) return
+                      patchItem('goals', itemId, it.status === 'work' && !it.done ? { status: 'plan' } : { done: false, status: 'work' })
+                    }}
+                    readOnly={readOnly}
+                    onItemLongPress={
+                      readOnly
+                        ? undefined
+                        : (itemId) => {
+                            const it = blockData('goals').items.find((x) => x.id === itemId)
+                            setSheet({ kind: 'item', blockId: 'goals', itemId, title: it?.text || 'Цель' })
+                          }
+                    }
+                    editItemId={editItem?.blockId === 'goals' ? editItem.itemId : null}
+                    onEditItem={(itemId, text) => patchItem('goals', itemId, { text })}
+                    onEditItemEnd={() => setEditItem(null)}
+                    onReorderItem={(from, to) =>
+                      patchBlockData('goals', (b) => ({ ...b, items: stampPos(moveItem(b.items, from, to)) }))
+                    }
+                  >
+                    {!readOnly && <AddRow label="добавить цель" onClick={() => addItem(goalsDef)} />}
+                  </ChecklistRow>
+                </div>
+                {/* вид прогресса: список (одна строка) / доска (колонки) */}
+                <div className="flex-none flex flex-col gap-0.5 pt-1">
+                  <button onClick={() => setViewMode('list')} title="Список" className="p-1">
+                    <Rows2 size={15} strokeWidth={1.8} style={{ color: viewMode === 'list' ? 'var(--accent)' : 'var(--muted)' }} />
+                  </button>
+                  <button onClick={() => setViewMode('board')} title="Доска" className="p-1">
+                    <Columns2 size={15} strokeWidth={1.8} style={{ color: viewMode === 'board' ? 'var(--accent)' : 'var(--muted)' }} />
+                  </button>
+                </div>
+              </div>
+              {/* остальные кольца свернуты: полосочка внизу разворачивает/сворачивает */}
+              {extraRings.length > 0 && (
+                <>
+                  <div
+                    className="grid transition-[grid-template-rows] duration-300"
+                    style={{ gridTemplateRows: ringsOpen ? '1fr' : '0fr' }}
+                  >
+                    <div className="overflow-hidden">
+                      <div className="flex flex-wrap gap-x-4 gap-y-3 px-1 pt-3">
+                        {extraRings.map((r, di) => {
+                          const pct = r.total ? r.done / r.total : 0
+                          const color = RING_COLORS[(di + 2) % RING_COLORS.length]
+                          const Icon = RING_ICONS[(di + 2) % RING_ICONS.length]
+                          return (
+                            <button key={r.id} onClick={() => jumpTo(r.id)} className="flex flex-col items-center gap-1">
+                              <span className="relative">
+                                <ProgressRing pct={pct} color={color} size={56} />
+                                <span
+                                  className="absolute inset-0 grid place-items-center"
+                                  style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: 'var(--light)' }}
+                                >
+                                  {Math.round(pct * 100)}%
+                                </span>
+                              </span>
+                              <Icon size={13} strokeWidth={1.8} style={{ color }} />
+                              <span className="max-w-[72px] truncate" style={{ fontSize: 11, color: 'var(--text-2)' }}>
+                                {r.label}
+                              </span>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>
+                                {r.total ? `${r.done}/${r.total}` : '—'}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setRingsOpen((v) => !v)}
+                    className="mt-2 w-full grid place-items-center py-1"
+                    title={ringsOpen ? 'Свернуть кольца' : 'Все кольца'}
+                  >
+                    <span className="w-10 h-1 rounded-full" style={{ background: 'var(--line-strong)' }} />
+                  </button>
+                </>
+              )}
+            </section>
+
+            {viewMode === 'board' ? (
+              /* режим «Доска»: плашки-вкладки как папки в Telegram, на экране один блок;
+                 переключение — тап по плашке, тап по кольцу в дашборде или свайп ← → */
+              <>
+                <div className="flex gap-1.5 overflow-x-auto mb-3 pb-1 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+                  {progressDefs.map((d) => {
+                    const st = blockStat(d.id)
+                    const active = boardActive?.id === d.id
                     return (
-                      <button key={def.id} onClick={() => jumpTo(def.id)} className="flex flex-col items-center gap-1">
-                        <span className="relative">
-                          <ProgressRing pct={pct} color={color} size={64} />
-                          <span
-                            className="absolute inset-0 grid place-items-center"
-                            style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--light)' }}
-                          >
-                            {Math.round(pct * 100)}%
-                          </span>
-                        </span>
-                        <Icon size={14} strokeWidth={1.8} style={{ color }} />
-                        <span className="max-w-[72px] truncate" style={{ fontSize: 11, color: 'var(--text-2)' }}>
-                          {def.title || 'Блок'}
-                        </span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>
-                          {st.total ? `${st.done}/${st.total}` : '—'}
-                        </span>
+                      <button
+                        key={d.id}
+                        onClick={() => setBoardId(d.id)}
+                        className="flex-none rounded-xl px-3 py-1.5"
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          background: active ? 'var(--accent)' : 'var(--surface)',
+                          color: active ? 'var(--on-fill)' : 'var(--muted)',
+                          border: '1px solid var(--line)',
+                        }}
+                      >
+                        {d.title || 'Блок'} · {st.done}/{st.total}
                       </button>
                     )
                   })}
+                  {!readOnly && (
+                    <button
+                      onClick={() => setBoardId(addBlockDef())}
+                      className="flex-none rounded-xl px-4 py-1.5 grid place-items-center"
+                      style={{ border: '1px dashed var(--line-strong)', color: 'var(--muted)' }}
+                      title="Новый блок"
+                    >
+                      <Plus size={14} strokeWidth={2} />
+                    </button>
+                  )}
                 </div>
-              </section>
+                <div {...boardSwipe}>{boardActive && renderBlock(boardActive)}</div>
+              </>
+            ) : (
+              /* режим «Список»: все блоки стопкой; свёрнутый блок перетаскивается зажатием */
+              <div {...progDrag.containerProps}>
+                {progressDefs.map((def, i) => {
+                  const bnd = progDrag.bindRow(i)
+                  return renderBlock(def, {
+                    refEl: bnd.ref,
+                    handlers: open[def.id] ? {} : { onTouchStart: bnd.onTouchStart, onMouseDown: bnd.onMouseDown },
+                    style: progDrag.rowStyle(i),
+                  })
+                })}
+                {!readOnly && <AddRow label="добавить блок" onClick={addBlockDef} />}
+              </div>
             )}
-
-            {kanbanDefs.map((def) => {
-              const bd = blockData(def.id)
-              const st = blockStat(def.id)
-              return (
-                <div className="mb-3" key={def.id} ref={(el) => { cardEls.current[def.id] = el }}>
-                  <BlockShell
-                    title={def.title || 'Блок'}
-                    count={st.total ? `${st.done}/${st.total}` : '—'}
-                    expanded={!!open[def.id]}
-                    flash={flash === def.id}
-                    readOnly={readOnly}
-                    progress={st.total ? st.done / st.total : 0}
-                    onToggle={() => toggleBlock(def.id)}
-                    onAdd={readOnly || !def.allow.items ? undefined : () => addItem(def)}
-                    onMenu={readOnly ? undefined : () => setMenuBlockId(def.id)}
-                  >
-                    {bd.items.length === 0 && bd.lists.length === 0 && <EmptyDash />}
-                    {bd.items.length > 0 && (
-                      <ItemsSection
-                        blockId={def.id}
-                        withTime={def.withTime}
-                        items={bd.items}
-                        readOnly={readOnly}
-                        editItem={editItem}
-                        onEditItem={setEditItem}
-                        onPatchItem={(itemId, patch) => patchItem(def.id, itemId, patch)}
-                        onReorder={(from, to) =>
-                          patchBlockData(def.id, (b) => ({ ...b, items: moveItem(b.items, from, to) }))
-                        }
-                        onLongPressItem={(itemId, t) => setSheet({ kind: 'item', blockId: def.id, itemId, title: t })}
-                        onItemDblTap={(itemId) => {
-                          const it = bd.items.find((x) => x.id === itemId)
-                          if (!it) return
-                          // двойной тап: в «В работе» и обратно в «План»
-                          patchItem(def.id, itemId, it.status === 'work' && !it.done ? { status: 'plan' } : { done: false, status: 'work' })
-                        }}
-                        anyDrag={anyDrag}
-                      />
-                    )}
-                    {bd.lists.length > 0 && (
-                      <BlockLists
-                        blockId={def.id}
-                        lists={bd.lists}
-                        readOnly={readOnly}
-                        openLists={openLists}
-                        onToggleList={toggleList}
-                        onPatchList={(listId, fn) => patchList(def.id, listId, fn)}
-                        onReorderLists={(from, to) =>
-                          patchBlockData(def.id, (b) => ({ ...b, lists: moveItem(b.lists, from, to) }))
-                        }
-                        onLongPressList={(listId, t) => setSheet({ kind: 'list', blockId: def.id, listId, title: t })}
-                        onLongPressListItem={(listId, itemId, t) =>
-                          setSheet({ kind: 'listItem', blockId: def.id, listId, itemId, title: t })
-                        }
-                        onItemDblTap={(listId, itemId) => {
-                          const lst = bd.lists.find((l) => l.id === listId)
-                          const it = lst?.items.find((x) => x.id === itemId)
-                          if (!it) return
-                          patchList(def.id, listId, (l) => ({
-                            ...l,
-                            items: l.items.map((x) =>
-                              x.id === itemId
-                                ? it.status === 'work' && !it.done
-                                  ? { ...x, status: 'plan' as const }
-                                  : { ...x, done: false, status: 'work' as const }
-                                : x,
-                            ),
-                          }))
-                        }}
-                        editListTitle={editListTitle}
-                        onEditListTitle={setEditListTitle}
-                        editListItem={editListItem}
-                        onEditListItem={setEditListItem}
-                        onAddListItem={(listId) => {
-                          const it: BlockItem = { id: uid(), text: '', done: false }
-                          patchList(def.id, listId, (l) => ({ ...l, items: [...l.items, it] }))
-                          setEditListItem({ blockId: def.id, listId, itemId: it.id })
-                          expandList(listId)
-                        }}
-                        anyDrag={anyDrag}
-                      />
-                    )}
-                    {!readOnly && def.allow.items && (
-                      <AddRow label="добавить пункт" onClick={() => addItem(def)} />
-                    )}
-                    {!readOnly && def.allow.checklists && (
-                      <AddRow label="добавить чек-лист" onClick={() => setPickList({ def, kind: 'checklist' })} />
-                    )}
-                    {!readOnly && def.allow.lists && (
-                      <AddRow label="добавить список" onClick={() => setPickList({ def, kind: 'list' })} />
-                    )}
-                  </BlockShell>
-                </div>
-              )
-            })}
           </>
         )}
       </div>
@@ -573,7 +997,41 @@ export default function TodayView() {
           onRename={sheetRename}
           onDelete={sheetDelete}
           renameLabel={sheet.kind === 'list' ? 'Переименовать' : undefined}
+          extras={sheetExtras(sheet)}
         />
+      )}
+
+      {/* «Переместить в…»: все контейнеры, где может жить пункт */}
+      {moveReq && (
+        <div className="fixed inset-0 z-[60]">
+          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setMoveReq(null)} />
+          <div
+            className="absolute inset-x-0 bottom-0 rounded-t-2xl p-4 overflow-y-auto fadein"
+            style={{ background: 'var(--surface)', border: '1px solid var(--line)', maxHeight: '70dvh' }}
+          >
+            <div className="grid place-items-center pb-3">
+              <span className="w-10 h-1 rounded-full" style={{ background: 'var(--line-strong)' }} />
+            </div>
+            <h2 className="mb-2" style={{ fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 600, color: 'var(--light)' }}>
+              Переместить в…
+            </h2>
+            {moveDests
+              .filter((d) => !(d.blockId === moveReq.blockId && d.listId === moveReq.listId))
+              .map((d) => (
+                <button
+                  key={`${d.blockId}:${d.listId ?? ''}`}
+                  onClick={() => moveItemTo(d.blockId, d.listId)}
+                  className="w-full flex items-center gap-2 px-3 py-3 rounded-xl text-left"
+                  style={{ color: 'var(--light)', fontSize: 14 }}
+                >
+                  <span style={{ paddingLeft: d.depth * 16, color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                    {d.depth > 0 ? '└' : ''}
+                  </span>
+                  <span className="min-w-0 truncate">{d.label}</span>
+                </button>
+              ))}
+          </div>
+        </div>
       )}
 
       {/* меню блока (из шторки настроек и из шапки развёрнутого блока) */}
@@ -586,76 +1044,14 @@ export default function TodayView() {
         />
       )}
 
-      {/* шторка «Блоки экрана»: переименование, меню, drag-порядок, добавление */}
-      {settingsOpen && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setSettingsOpen(false)} />
-          <div
-            className="absolute inset-x-0 bottom-0 rounded-t-2xl p-4 overflow-y-auto fadein"
-            style={{ background: 'var(--surface)', border: '1px solid var(--line)', maxHeight: '80dvh' }}
-          >
-            <div className="grid place-items-center pb-3">
-              <span className="w-10 h-1 rounded-full" style={{ background: 'var(--line-strong)' }} />
-            </div>
-            <h2 className="mb-2" style={{ fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 600, color: 'var(--light)' }}>
-              Блоки экрана
-            </h2>
-            <div {...blocksDrag.containerProps}>
-              {defs.map((def, i) => {
-                const st = blockStat(def.id)
-                return (
-                  <div
-                    key={def.id}
-                    {...blocksDrag.bindRow(i)}
-                    style={blocksDrag.rowStyle(i)}
-                    className="no-select flex items-center gap-2.5 rounded-xl px-2 py-2.5"
-                  >
-                    <GripVertical size={16} strokeWidth={1.8} className="flex-none" style={{ color: 'var(--muted)' }} />
-                    {editDefId === def.id ? (
-                      <input
-                        ref={(el) => el?.focus()}
-                        value={def.title}
-                        onChange={(e) => patchDef(def.id, { title: e.target.value })}
-                        onBlur={() => setEditDefId(null)}
-                        onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && setEditDefId(null)}
-                        placeholder="Название блока"
-                        className="flex-1 min-w-0 bg-transparent outline-none"
-                        style={{ fontSize: 14, color: 'var(--light)', borderBottom: '1px solid var(--accent)' }}
-                      />
-                    ) : (
-                      <span className="flex-1 min-w-0 truncate" style={{ fontSize: 14, fontWeight: 500, color: 'var(--light)' }}>
-                        {def.title || 'Без названия'}
-                      </span>
-                    )}
-                    <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
-                      {st.total} пунктов
-                    </span>
-                    <button onClick={() => setMenuBlockId(def.id)} className="flex-none p-1" title="Действия блока">
-                      <MoreHorizontal size={18} strokeWidth={1.8} style={{ color: 'var(--muted)' }} />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-            <AddRow label="Добавить блок" onClick={addBlockDef} />
-            <button
-              onClick={() => setSettingsOpen(false)}
-              className="mt-3 w-full py-2.5 rounded-xl"
-              style={{ border: '1px solid var(--line-strong)', color: 'var(--muted)', fontSize: 13 }}
-            >
-              Закрыть
-            </button>
-          </div>
-        </div>
-      )}
-
       {toast.node}
     </div>
   )
 }
 // пункты блока (цели/задачи/события): чекбокс (или время) + текст;
 // тап по тексту НЕ открывает редактирование — только long-press → action-sheet;
-// новая строка (после «добавить …») сразу в режиме инпута
+// новая строка (после «добавить …») сразу в режиме инпута;
+// удержание поднятого пункта над другим (onMerge) — группировка в подблок
 function ItemsSection({
   blockId,
   withTime,
@@ -667,7 +1063,7 @@ function ItemsSection({
   onReorder,
   onLongPressItem,
   onItemDblTap,
-  anyDrag,
+  onMerge,
 }: {
   blockId: string
   withTime: boolean
@@ -679,7 +1075,7 @@ function ItemsSection({
   onReorder: (from: number, to: number) => void
   onLongPressItem: (itemId: string, title: string) => void
   onItemDblTap?: (itemId: string) => void
-  anyDrag: { current: Record<string, boolean> }
+  onMerge?: (from: number, to: number) => void
 }) {
   const drag = useDragList({
     disabled: readOnly,
@@ -688,8 +1084,8 @@ function ItemsSection({
       const it = items[i]
       if (it) onLongPressItem(it.id, it.text || 'Пункт')
     },
+    onMerge,
   })
-  anyDrag.current[`items:${blockId}`] = drag.dragging
   const dblTap = useRef<Record<string, number>>({})
   const tapRow = (it: BlockItem) => {
     if (!onItemDblTap || readOnly) return
@@ -763,8 +1159,9 @@ function ItemsSection({
                 )}
                 <span
                   onClick={() => tapRow(it)}
-                  className="flex-1 min-w-0 truncate"
+                  className="flex-1 min-w-0"
                   style={{
+                    ...CLAMP3,
                     fontSize: 14,
                     color: it.done ? 'var(--muted)' : inWork ? 'var(--light)' : 'var(--text-2)',
                     textDecoration: it.done ? 'line-through' : 'none',
@@ -791,8 +1188,9 @@ function ItemsSection({
     </div>
   )
 }
-// под-списки блока: чек-листы (ChecklistRow) и нумерованные списки (NumberedList);
-// long-press по списку — action-sheet, порядок — drag как у пунктов
+// под-списки блока: чек-листы (ChecklistRow), подблоки (SubBlockRow) и нумерованные
+// списки (NumberedList); long-press по списку — action-sheet, порядок — drag как у пунктов.
+// Подблоки вкладываются друг в друга и в чек-листы — компонент рекурсивный.
 function BlockLists({
   blockId,
   lists,
@@ -809,7 +1207,9 @@ function BlockLists({
   editListItem,
   onEditListItem,
   onAddListItem,
-  anyDrag,
+  onAddSubList,
+  onMergeItem,
+  hideDone,
 }: {
   blockId: string
   lists: BlockList[]
@@ -826,17 +1226,54 @@ function BlockLists({
   editListItem: EditListItem | null
   onEditListItem: (v: EditListItem | null) => void
   onAddListItem: (listId: string) => void
-  anyDrag: { current: Record<string, boolean> }
+  onAddSubList: (parentListId: string) => void
+  onMergeItem: (listId: string, from: number, to: number) => void
+  hideDone?: boolean
 }) {
   const drag = useDragList({
     disabled: readOnly,
     onReorder: onReorderLists,
     onLongPress: (i) => {
       const l = lists[i]
-      if (l) onLongPressList(l.id, l.title || (l.kind === 'checklist' ? 'Чек-лист' : 'Список'))
+      if (l)
+        onLongPressList(l.id, l.title || (l.kind === 'checklist' ? 'Чек-лист' : l.kind === 'sub' ? 'Подблок' : 'Список'))
     },
   })
-  anyDrag.current[`lists:${blockId}`] = drag.dragging
+
+  // общие обработчики пунктов чек-листа/подблока;
+  // при «Скрыть выполненные» индексы жестов переводим из видимого списка в полный
+  const itemHandlers = (lst: BlockList) => ({
+    onToggleItem: (itemId: string) =>
+      onPatchList(lst.id, (l) => ({
+        ...l,
+        items: l.items.map((x) => (x.id === itemId ? { ...x, done: !x.done } : x)),
+      })),
+    onItemLongPress: readOnly
+      ? undefined
+      : (itemId: string) => {
+          const it = lst.items.find((x) => x.id === itemId)
+          onLongPressListItem(lst.id, itemId, it?.text || 'Пункт')
+        },
+    onEditItem: (itemId: string, text: string) =>
+      onPatchList(lst.id, (l) => ({
+        ...l,
+        items: l.items.map((x) => (x.id === itemId ? { ...x, text } : x)),
+      })),
+    onEditItemEnd: () => onEditListItem(null),
+    onReorderItem: (from: number, to: number) =>
+      onPatchList(lst.id, (l) => {
+        const vis = visItems(l.items, hideDone)
+        return { ...l, items: stampPos(moveItem(l.items, fullIdx(l.items, vis, from), fullIdx(l.items, vis, to))) }
+      }),
+    onMergeItem: (from: number, to: number) => {
+      const vis = visItems(lst.items, hideDone)
+      const f = fullIdx(lst.items, vis, from)
+      const t = fullIdx(lst.items, vis, to)
+      if (f >= 0 && t >= 0) onMergeItem(lst.id, f, t)
+    },
+    onEditTitle: (text: string) => onPatchList(lst.id, (l) => ({ ...l, title: text })),
+    onEditTitleEnd: () => onEditListTitle(null),
+  })
 
   return (
     <div {...drag.containerProps}>
@@ -844,44 +1281,97 @@ function BlockLists({
         const expanded = openLists.includes(lst.id)
         const editTitle = editListTitle?.blockId === blockId && editListTitle.listId === lst.id
         const editItemId = editListItem?.blockId === blockId && editListItem.listId === lst.id ? editListItem.itemId : null
+        // вложенные подблоки + кнопка «добавить подблок» (внутри чек-листов и подблоков)
+        const nested =
+          lst.kind === 'list' ? null : (
+            <>
+              {(lst.lists?.length ?? 0) > 0 && (
+                <BlockLists
+                  blockId={blockId}
+                  lists={lst.lists ?? []}
+                  readOnly={readOnly}
+                  openLists={openLists}
+                  onToggleList={onToggleList}
+                  onPatchList={onPatchList}
+                  onReorderLists={(from, to) =>
+                    onPatchList(lst.id, (l) => ({ ...l, lists: moveItem(l.lists ?? [], from, to) }))
+                  }
+                  onLongPressList={onLongPressList}
+                  onLongPressListItem={onLongPressListItem}
+                  onItemDblTap={onItemDblTap}
+                  editListTitle={editListTitle}
+                  onEditListTitle={onEditListTitle}
+                  editListItem={editListItem}
+                  onEditListItem={onEditListItem}
+                  onAddListItem={onAddListItem}
+                  onAddSubList={onAddSubList}
+                  onMergeItem={onMergeItem}
+                  hideDone={hideDone}
+                />
+              )}
+              {!readOnly && (
+                <button
+                  onClick={() => onAddSubList(lst.id)}
+                  className="mb-1 flex items-center gap-1.5 rounded-lg px-2 py-1"
+                  style={{ color: 'var(--muted)', fontSize: 12 }}
+                >
+                  <Plus size={12} strokeWidth={1.8} /> добавить подблок
+                </button>
+              )}
+            </>
+          )
+        const h = itemHandlers(lst)
+        // видимая копия списка: выполненные скрыты из вида, но хранятся в данных;
+        // полоска и счётчик остаются полными n/m (stat из исходного списка)
+        const lstV = hideDone && lst.kind !== 'list' ? { ...lst, items: lst.items.filter((x) => !x.done) } : lst
+        const stat =
+          hideDone && lst.kind !== 'list'
+            ? { done: lst.items.filter((x) => x.done).length, total: lst.items.length }
+            : undefined
         return (
           <div key={lst.id} {...drag.bindRow(i)} style={drag.rowStyle(i)} className="no-select">
             {lst.kind === 'checklist' ? (
               <ChecklistRow
-                inst={lst}
+                inst={lstV}
                 expanded={expanded}
                 onToggle={() => onToggleList(lst.id)}
-                onToggleItem={(itemId) =>
-                  onPatchList(lst.id, (l) => ({
-                    ...l,
-                    items: l.items.map((x) => (x.id === itemId ? { ...x, done: !x.done } : x)),
-                  }))
-                }
+                onToggleItem={h.onToggleItem}
                 onItemDblTap={onItemDblTap ? (itemId) => onItemDblTap(lst.id, itemId) : undefined}
                 readOnly={readOnly}
-                onItemLongPress={
-                  readOnly
-                    ? undefined
-                    : (itemId) => {
-                        const it = lst.items.find((x) => x.id === itemId)
-                        onLongPressListItem(lst.id, itemId, it?.text || 'Пункт')
-                      }
-                }
+                onItemLongPress={h.onItemLongPress}
                 editItemId={editItemId}
-                onEditItem={(itemId, text) =>
-                  onPatchList(lst.id, (l) => ({
-                    ...l,
-                    items: l.items.map((x) => (x.id === itemId ? { ...x, text } : x)),
-                  }))
-                }
-                onEditItemEnd={() => onEditListItem(null)}
-                onReorderItem={(from, to) =>
-                  onPatchList(lst.id, (l) => ({ ...l, items: moveItem(l.items, from, to) }))
-                }
+                onEditItem={h.onEditItem}
+                onEditItemEnd={h.onEditItemEnd}
+                onReorderItem={h.onReorderItem}
+                onMergeItem={h.onMergeItem}
                 editTitle={editTitle}
-                onEditTitle={(text) => onPatchList(lst.id, (l) => ({ ...l, title: text }))}
-                onEditTitleEnd={() => onEditListTitle(null)}
-              />
+                onEditTitle={h.onEditTitle}
+                onEditTitleEnd={h.onEditTitleEnd}
+                stat={stat}
+              >
+                {nested}
+              </ChecklistRow>
+            ) : lst.kind === 'sub' ? (
+              <SubBlockRow
+                list={lstV}
+                expanded={expanded}
+                onToggle={() => onToggleList(lst.id)}
+                onToggleItem={h.onToggleItem}
+                onItemDblTap={onItemDblTap ? (itemId) => onItemDblTap(lst.id, itemId) : undefined}
+                readOnly={readOnly}
+                onItemLongPress={h.onItemLongPress}
+                editItemId={editItemId}
+                onEditItem={h.onEditItem}
+                onEditItemEnd={h.onEditItemEnd}
+                onReorderItem={h.onReorderItem}
+                onMergeItem={h.onMergeItem}
+                editTitle={editTitle}
+                onEditTitle={h.onEditTitle}
+                onEditTitleEnd={h.onEditTitleEnd}
+                stat={stat}
+              >
+                {nested}
+              </SubBlockRow>
             ) : (
               <NumberedList
                 list={lst}
@@ -924,6 +1414,173 @@ function BlockLists({
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// подблок: те же пункты с чекбоксами, что у чек-листа, но без прогресс-бара и иконки;
+// название необязательно; сворачивается; children — вложенные подблоки
+function SubBlockRow({
+  list,
+  expanded,
+  onToggle,
+  onToggleItem,
+  onItemDblTap,
+  readOnly,
+  onItemLongPress,
+  editItemId,
+  onEditItem,
+  onEditItemEnd,
+  onReorderItem,
+  onMergeItem,
+  editTitle,
+  onEditTitle,
+  onEditTitleEnd,
+  children,
+  stat,
+}: {
+  list: BlockList
+  expanded: boolean
+  onToggle: () => void
+  onToggleItem: (itemId: string) => void
+  onItemDblTap?: (itemId: string) => void
+  readOnly?: boolean
+  onItemLongPress?: (itemId: string) => void
+  editItemId?: string | null
+  onEditItem?: (itemId: string, text: string) => void
+  onEditItemEnd?: () => void
+  onReorderItem?: (from: number, to: number) => void
+  onMergeItem?: (from: number, to: number) => void
+  editTitle?: boolean
+  onEditTitle?: (text: string) => void
+  onEditTitleEnd?: () => void
+  children?: ReactNode
+  stat?: { done: number; total: number } // внешний счёт: при «Скрыть выполненные» показываем полные n/m
+}) {
+  const done = stat?.done ?? list.items.filter((i) => i.done).length
+  const total = stat?.total ?? list.items.length
+
+  const dblTap = useRef<Record<string, number>>({})
+  const tapRow = (id: string) => {
+    if (!onItemDblTap || readOnly) return
+    const now = Date.now()
+    if (now - (dblTap.current[id] ?? 0) < 320) {
+      dblTap.current[id] = 0
+      onItemDblTap(id)
+    } else dblTap.current[id] = now
+  }
+
+  const drag = useDragList({
+    disabled: readOnly || !onReorderItem,
+    onReorder: (from, to) => onReorderItem?.(from, to),
+    onLongPress: (index) => {
+      const it = list.items[index]
+      if (it) onItemLongPress?.(it.id)
+    },
+    onMerge: onMergeItem,
+  })
+
+  return (
+    <div>
+      <div onClick={onToggle} role="button" className="no-select w-full flex items-center gap-2 py-2 text-left">
+        <ChevronDown
+          size={15}
+          strokeWidth={1.8}
+          className="flex-none transition-transform"
+          style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none' }}
+        />
+        <span className="flex-1 min-w-0">
+          {editTitle && !readOnly ? (
+            <input
+              ref={(el) => el?.focus()}
+              value={list.title}
+              onChange={(e) => onEditTitle?.(e.target.value)}
+              onBlur={onEditTitleEnd}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && onEditTitleEnd?.()}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="Название подблока"
+              className="block w-full min-w-0 bg-transparent outline-none"
+              style={{ fontSize: 13, fontWeight: 500, color: 'var(--light)', borderBottom: '1px solid var(--accent)' }}
+            />
+          ) : (
+            <span
+              className="block truncate"
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                color: list.title ? 'var(--light)' : 'var(--muted)',
+                fontStyle: list.title ? 'normal' : 'italic',
+              }}
+            >
+              {list.title || 'Подблок'}
+            </span>
+          )}
+        </span>
+        <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+          {done}/{total}
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateRows: expanded ? '1fr' : '0fr',
+          transition: 'grid-template-rows .3s cubic-bezier(0.65,0,0.35,1)',
+        }}
+      >
+        <div style={{ overflow: 'hidden' }}>
+          <div className="pl-6 pr-1 pb-1" {...drag.containerProps}>
+            {list.items.map((it, idx) => {
+              const inWork = it.status === 'work' && !it.done
+              return (
+                <div
+                  key={it.id}
+                  {...drag.bindRow(idx)}
+                  style={{
+                    ...drag.rowStyle(idx),
+                    ...(inWork ? { background: 'rgba(232,150,60,0.16)', borderRadius: 10 } : {}),
+                  }}
+                  className="no-select flex items-center gap-2.5 py-2"
+                >
+                  <button
+                    onClick={() => onToggleItem(it.id)}
+                    disabled={readOnly}
+                    className="flex-none disabled:cursor-default"
+                  >
+                    <MCheck done={it.done} color="var(--accent)" size={18} />
+                  </button>
+                  {editItemId === it.id && !readOnly ? (
+                    <input
+                      ref={(el) => el?.focus()}
+                      value={it.text}
+                      onChange={(e) => onEditItem?.(it.id, e.target.value)}
+                      onBlur={onEditItemEnd}
+                      onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && onEditItemEnd?.()}
+                      className="flex-1 min-w-0 bg-transparent outline-none"
+                      style={{ fontSize: 13, color: 'var(--light)', borderBottom: '1px solid var(--accent)' }}
+                    />
+                  ) : (
+                    <span
+                      onClick={() => tapRow(it.id)}
+                      className="flex-1 min-w-0"
+                      style={{
+                        ...CLAMP3,
+                        fontSize: 13,
+                        color: it.done ? 'var(--muted)' : 'var(--light)',
+                        textDecoration: it.done ? 'line-through' : 'none',
+                        textDecorationColor: 'var(--line-strong)',
+                      }}
+                    >
+                      {it.text}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+            {children}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1031,7 +1688,9 @@ function NumberedList({
                     style={{ fontSize: 13, color: 'var(--light)', borderBottom: '1px solid var(--accent)' }}
                   />
                 ) : (
-                  <span style={{ fontSize: 13, color: 'var(--light)' }}>{it.text}</span>
+                  <span className="flex-1 min-w-0" style={{ ...CLAMP3, fontSize: 13, color: 'var(--light)' }}>
+                    {it.text}
+                  </span>
                 )}
               </div>
             ))}
@@ -1077,7 +1736,9 @@ function BlockShell({
       }}
     >
       <LongPressRow
-        disabled={readOnly || !onAdd}
+        // long-press по шапке = «добавить пункт» только у РАЗВЁРНУТОГО блока;
+        // у свёрнутого зажатие занято перестановкой блока (drag в списке прогресса)
+        disabled={readOnly || !onAdd || !expanded}
         onLongPress={onAdd ?? (() => {})}
         onClick={onToggle}
         className="flex w-full items-center gap-2 px-4 pt-3.5 pb-2"
@@ -1148,5 +1809,70 @@ function EmptyDash() {
     <p className="py-3 text-center" style={{ fontSize: 13, color: 'var(--muted)' }}>
       —
     </p>
+  )
+}
+
+// полоса недели под датабаром: 7 дней недели с viewDate;
+// тап по дню — переход на него, свайп по полосе — сдвиг на ± неделю
+function WeekStrip({ viewDate, onPick }: { viewDate: Date; onPick: (offset: number) => void }) {
+  const swipeX = useRef<number | null>(null)
+  const sod = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const dayOffsetOf = (d: Date) => Math.round((sod(d).getTime() - sod(new Date()).getTime()) / 86400000)
+  const curOffset = dayOffsetOf(viewDate)
+  const selected = fmtKey(viewDate)
+  const todayK = fmtKey(new Date())
+
+  // понедельник недели, содержащей viewDate
+  const monday = new Date(viewDate)
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday)
+    d.setDate(d.getDate() + i)
+    return d
+  })
+
+  return (
+    <div
+      className="no-select flex gap-1 mb-3"
+      onTouchStart={(e) => {
+        e.stopPropagation()
+        swipeX.current = e.touches[0].clientX
+      }}
+      onTouchEnd={(e) => {
+        e.stopPropagation()
+        if (swipeX.current === null) return
+        const dx = e.changedTouches[0].clientX - swipeX.current
+        swipeX.current = null
+        if (Math.abs(dx) > 40) onPick(curOffset + (dx < 0 ? 7 : -7))
+      }}
+    >
+      {days.map((d, i) => {
+        const key = fmtKey(d)
+        const isSel = key === selected
+        const isToday = key === todayK
+        return (
+          <button
+            key={key}
+            onClick={() => onPick(dayOffsetOf(d))}
+            className="flex-1 flex flex-col items-center gap-0.5 rounded-xl py-1.5 transition-colors"
+            style={{ background: isSel ? 'var(--accent)' : 'var(--surface)', border: '1px solid var(--line)' }}
+          >
+            <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.04em', color: isSel ? 'var(--on-fill)' : 'var(--muted)' }}>
+              {WD_SHORT[(i + 1) % 7]}
+            </span>
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 13,
+                fontWeight: isSel || isToday ? 700 : 500,
+                color: isSel ? 'var(--on-fill)' : isToday ? 'var(--accent)' : 'var(--text-2)',
+              }}
+            >
+              {d.getDate()}
+            </span>
+          </button>
+        )
+      })}
+    </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, LayoutDashboard, ListTree, Pencil, Trash2, type LucideIcon } from 'lucide-react'
+import { ChevronDown, EyeOff, LayoutDashboard, ListTree, Pencil, Trash2, type LucideIcon } from 'lucide-react'
 import type { BlockDef } from '../views/practice/store'
 import { Toggle } from './ui'
 
@@ -63,6 +63,7 @@ export default function BlockMenu({
 
   const allowRows: { key: keyof BlockDef['allow']; label: string }[] = [
     { key: 'checklists', label: 'Чек-листы' },
+    { key: 'sub', label: 'Подблоки' },
     { key: 'lists', label: 'Списки' },
     { key: 'items', label: 'Пункты' },
   ]
@@ -142,6 +143,12 @@ export default function BlockMenu({
               icon={LayoutDashboard}
               label="Показывать в дашборде"
               right={<Toggle on={def.inDashboard} onChange={(v) => onPatch({ inDashboard: v })} />}
+            />
+            {/* выполненные прячутся из вида, но хранятся и считаются в прогрессе */}
+            <MenuRow
+              icon={EyeOff}
+              label="Скрыть выполненные"
+              right={<Toggle on={!!def.hideDone} onChange={(v) => onPatch({ hideDone: v })} />}
             />
             <MenuRow icon={Trash2} label="Удалить блок" danger onClick={() => setConfirming(true)} />
             <button
