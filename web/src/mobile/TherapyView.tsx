@@ -10,7 +10,7 @@ interface TherapyNote {
 }
 
 export default function TherapyView() {
-  const [notes, setNotes] = useLS<TherapyNote[]>('aod2-therapy-notes', [])
+  const [notes, setNotes] = useLS<TherapyNote[]>('aod3-therapy-notes', [])
   const [noteSheet, setNoteSheet] = useState<TherapyNote | null>(null)
   const [draft, setDraft] = useState('')
 

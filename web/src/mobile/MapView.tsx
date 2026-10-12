@@ -53,7 +53,7 @@ const TABS: { id: MapTab; label: string }[] = [
 const todayIso = () => new Date().toISOString().slice(0, 10)
 
 export default function MapView() {
-  const [stored, setStored] = useLS<StoredSelfMap>('aod2-selfmap-v1', SEED)
+  const [stored, setStored] = useLS<StoredSelfMap>('aod3-selfmap-v1', SEED)
   const [tab, setTab] = useState<MapTab>('snapshot')
   const [baseline, setBaseline] = useState<string | null>(null)
 
@@ -75,15 +75,15 @@ export default function MapView() {
   const [draft, setDraft] = useState<Snapshot | null>(null)
 
   const [anView, setAnView] = useState<'gaps' | 'strengths'>('gaps')
-  const [anPanelView, setAnPanelView] = useLS<'list' | 'columns'>('aod2-map-analytics-view', 'list')
-  const [anGroupView, setAnGroupView] = useLS<'flat' | 'groups'>('aod2-map-analytics-grouping', 'groups')
-  const [dataView, setDataView] = useLS<'list' | 'columns'>('aod2-map-data-view', 'list')
+  const [anPanelView, setAnPanelView] = useLS<'list' | 'columns'>('aod3-map-analytics-view', 'list')
+  const [anGroupView, setAnGroupView] = useLS<'flat' | 'groups'>('aod3-map-analytics-grouping', 'groups')
+  const [dataView, setDataView] = useLS<'list' | 'columns'>('aod3-map-data-view', 'list')
   const [emotionsOpen, setEmotionsOpen] = useState(false)
 
   // данные эмоций для подсветки графа
-  const [notes] = useLS<Note[]>('aod2-notes', [])
-  const [listrecs] = useLS<ListRecord[]>('aod2-listrecs', [])
-  const [diary] = useLS<Diary>('aod2-diary', {})
+  const [notes] = useLS<Note[]>('aod3-notes', [])
+  const [listrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
+  const [diary] = useLS<Diary>('aod3-diary', {})
 
   const snapshots = stored.snapshots
   const dates = useMemo(() => Object.keys(snapshots).sort(), [snapshots])

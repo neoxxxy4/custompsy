@@ -4,7 +4,7 @@ import { useLS } from '@/views/practice/store';
 import { applyTheme, asTheme, DEFAULT_THEME } from '@/lib/theme';
 
 export default function App() {
-  const [themeRaw, setTheme] = useLS<string>('aod2-theme', DEFAULT_THEME);
+  const [themeRaw, setTheme] = useLS<string>('aod3-theme', DEFAULT_THEME);
   const theme = asTheme(themeRaw);
 
   useEffect(() => {

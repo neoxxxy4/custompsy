@@ -79,31 +79,8 @@ export const DEFAULT_TABS: AppTab[] = [
         label: 'Все',
         items: [
           { id: 'records', label: 'Записи' },
-          { id: 'graph', label: 'Граф' },
-          { id: 'path', label: 'Путь' },
-          { id: 'therapy', label: 'Терапия' },
           { id: 'map', label: 'Карта' },
           { id: 'emotions', label: 'Эмоции' },
-          { id: 'session', label: 'Сессия' },
-        ],
-      },
-      {
-        id: 'folder-tools-1',
-        label: 'Планирование',
-        items: [
-          { id: 'records', label: 'Записи' },
-          { id: 'graph', label: 'Граф' },
-          { id: 'journey', label: 'Путь' },
-        ],
-      },
-      {
-        id: 'folder-tools-2',
-        label: 'Работа',
-        items: [
-          { id: 'therapy', label: 'Терапия' },
-          { id: 'map', label: 'Карта' },
-          { id: 'emotions', label: 'Эмоции' },
-          { id: 'path', label: 'Путь' },
         ],
       },
     ],
@@ -122,7 +99,7 @@ export const DEFAULT_TABS: AppTab[] = [
   },
 ]
 
-const STORAGE_KEY = 'aod2-app-tabs'
+const STORAGE_KEY = 'aod3-app-tabs'
 
 export const validToolIds = new Set<MTab>(Object.keys(TOOL_META) as MTab[])
 

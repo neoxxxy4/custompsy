@@ -79,10 +79,10 @@ export default function RecordsView({
   onHome: () => void
 }) {
   const tk = todayKey()
-  const [notes, setNotes] = useLS<Note[]>('aod2-notes', SEED_NOTES)
-  const [folders] = useLS<Folder[]>('aod2-folders', SEED_FOLDERS)
-  const [listrecs, setListrecs] = useLS<ListRecord[]>('aod2-listrecs', [])
-  const [diary, setDiary] = useLS<Diary>('aod2-diary', {})
+  const [notes, setNotes] = useLS<Note[]>('aod3-notes', SEED_NOTES)
+  const [folders] = useLS<Folder[]>('aod3-folders', SEED_FOLDERS)
+  const [listrecs, setListrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
+  const [diary, setDiary] = useLS<Diary>('aod3-diary', {})
 
   // одноразовый сидинг записей BrickGame v2.0 (дорожная карта + требования с подблоками Ч1–Ч3)
   useEffect(() => {

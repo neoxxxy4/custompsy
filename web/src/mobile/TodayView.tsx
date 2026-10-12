@@ -160,12 +160,12 @@ export default function TodayView() {
   const readOnly = offset < 0
 
   // блоки — отдельные сущности каждого дня: добавленный блок живёт только в этой дате
-  const [defs, setDefs] = useLS<BlockDef[]>(`aod2-today-blocks-${dateKey}`, seedDayBlocks())
+  const [defs, setDefs] = useLS<BlockDef[]>(`aod3-today-blocks-${dateKey}`, seedDayBlocks())
   // вид экрана «Прогресс»: список блоков / доска с плашками (как папки в Telegram)
-  const [viewMode, setViewMode] = useLS<'list' | 'board'>('aod2-today-viewmode', 'list')
-  const [listrecs] = useLS<ListRecord[]>('aod2-listrecs', [])
+  const [viewMode, setViewMode] = useLS<'list' | 'board'>('aod3-today-viewmode', 'list')
+  const [listrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
   // readOnly-день (вчера): мигрируем только то, что было в legacy, без дефолтов
-  const [data, setData] = useLS<TodayData>(`aod2-today-data-${dateKey}`, seedTodayData(dateKey, wdName, readOnly))
+  const [data, setData] = useLS<TodayData>(`aod3-today-data-${dateKey}`, seedTodayData(dateKey, wdName, readOnly))
 
   // одноразово: на BRICKGAME_DATE блок «Чек-листы» — только блоки BrickGame v2.0
   useEffect(() => {

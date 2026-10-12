@@ -4,7 +4,6 @@ import {
   BRICKGAME_REQUIREMENTS,
   CHECKLISTS,
   ROADMAP_CHECKLIST,
-  WEEK_TEMPLATE,
 } from '../../data/system'
 
 // ─── types ───
@@ -78,15 +77,15 @@ export type Diary = Record<string, DiaryEntry>
 
 export interface Goal { text: string; done: boolean }
 
-// простая задача дня (ключ aod2-tasks-<date>)
+// простая задача дня (ключ aod3-tasks-<date>)
 export interface Task { id: string; text: string; done: boolean }
 
-// редактируемый блок расписания дня (ключ aod2-schedblocks-<date>)
+// редактируемый блок расписания дня (ключ aod3-schedblocks-<date>)
 export interface SchedBlock { id: string; time: string; what: string; color?: string; done: boolean }
 
 // ─── кастомные блоки экрана «Сегодня» ───
 
-// описание блока (ключ aod2-today-blocks-<date>, у каждого дня свой набор; порядок массива = порядок на экране)
+// описание блока (ключ aod3-today-blocks-<date>, у каждого дня свой набор; порядок массива = порядок на экране)
 export interface BlockDef {
   id: string
   title: string
@@ -118,10 +117,10 @@ export interface BlockList {
   lists?: BlockList[]  // вложенные подблоки: внутри блока, подблока или чек-листа
 }
 
-// данные дня по блокам (ключ aod2-today-data-<date>): blockId → пункты и под-списки
+// данные дня по блокам (ключ aod3-today-data-<date>): blockId → пункты и под-списки
 export type TodayData = Record<string, { items: BlockItem[]; lists: BlockList[] }>
 
-// независимая запись «Списков» в «Записях» (ключ aod2-listrecs)
+// независимая запись «Списков» в «Записях» (ключ aod3-listrecs)
 export interface ListRecord {
   id: string
   kind: 'checklist' | 'list'
@@ -174,8 +173,8 @@ export function instantiate(t: Template): DayInstance {
   }
 }
 
-// стартовый набор чек-листов дня (встроенные шаблоны)
-export const seedDay = (): DayInstance[] => allTemplates([]).map(instantiate)
+// стартовый набор чек-листов дня (пусто по умолчанию)
+export const seedDay = (): DayInstance[] => []
 
 // ─── Одноразовый день BrickGame ───
 // На BRICKGAME_DATE чек-листы дня подменяются блоками проекта BrickGame v2.0:
@@ -187,7 +186,7 @@ export const BRICKGAME_DATE = '2026-09-27'
 // чтобы каждая модель засеялась независимо и однократно.
 // v3 — день 27.09: дорожная карта + слитый блок требований; bump = повторный сидинг.
 export const brickgameFlagKey = (dateKey: string, scope: string) =>
-  `aod2-bg-seeded-v3-${scope}-${dateKey}`
+  `aod3-bg-seeded-v3-${scope}-${dateKey}`
 
 const brickgameChecklists = () => [ROADMAP_CHECKLIST, BRICKGAME_REQUIREMENTS]
 
@@ -203,7 +202,7 @@ export const brickgameBlockLists = (): BlockList[] =>
   }))
 
 // ─── Записи BrickGame в «Записях» (одноразовый сидинг, флаг BRICKGAME_LISTREC_FLAG) ───
-export const BRICKGAME_LISTREC_FLAG = 'aod2-bg-listrecs-seeded-v1'
+export const BRICKGAME_LISTREC_FLAG = 'aod3-bg-listrecs-seeded-v1'
 export const BRICKGAME_LISTREC_IDS = ['bg-rec-roadmap', 'bg-rec-req']
 
 // счётчик пунктов записи с учётом вложенных подблоков (рекурсивно)
@@ -256,34 +255,11 @@ export const brickgameListRecords = (): ListRecord[] => [
 ]
 
 // стартовое расписание дня: шаблон дня недели из «Планирования»
-// + перенос отметок из legacy-ключа aod2-sched-<date> (индексы wdName-i)
-export const seedSchedBlocks = (dateKey: string, wdName: string): SchedBlock[] => {
-  const plan = WEEK_TEMPLATE.find((d) => d.day === wdName) ?? WEEK_TEMPLATE[0]
-  let legacy: Record<string, boolean> = {}
-  try {
-    const s = localStorage.getItem(`aod2-sched-${dateKey}`)
-    if (s) legacy = JSON.parse(s) as Record<string, boolean>
-  } catch {
-    /* битый legacy-ключ — начинаем с чистого листа */
-  }
-  return [...plan.blocks]
-    .sort((a, b) => a.time.localeCompare(b.time))
-    .map((b, i) => ({
-      id: uid(),
-      time: b.time,
-      what: b.what,
-      color: b.color,
-      done: !!legacy[`${wdName}-${i}`],
-    }))
-}
+// + перенос отметок из legacy-ключа aod3-sched-<date> (индексы wdName-i)
+export const seedSchedBlocks = (_dateKey: string, _wdName: string): SchedBlock[] => []
 
 // дефолтные блоки экрана «Сегодня»
-export const seedBlockDefs = (): BlockDef[] => [
-  { id: 'goals', title: 'Цели', withTime: false, inDashboard: true, allow: { items: true, checklists: false, lists: false, sub: false } },
-  { id: 'schedule', title: 'Расписание', withTime: true, inDashboard: true, allow: { items: true, checklists: false, lists: false, sub: false } },
-  { id: 'lists', title: 'Чек-листы', withTime: false, inDashboard: true, allow: { items: false, checklists: true, lists: false, sub: true } },
-  { id: 'tasks', title: 'Задачи', withTime: false, inDashboard: true, allow: { items: true, checklists: false, lists: false, sub: true } },
-]
+export const seedBlockDefs = (): BlockDef[] => []
 
 // дефолты для старых записей без полей
 export const normalizeDef = (d: BlockDef): BlockDef => ({
@@ -300,14 +276,14 @@ export const normalizeDef = (d: BlockDef): BlockDef => ({
   },
 })
 
-// блоки конкретного дня (ключ aod2-today-blocks-<date>): при первом открытии
+// блоки конкретного дня (ключ aod3-today-blocks-<date>): при первом открытии
 // берём legacy-глобальный список, дальше каждый день живёт со своими блоками
 export const seedDayBlocks = (): BlockDef[] => {
-  const legacy = readLegacy<BlockDef[]>('aod2-today-blocks')
+  const legacy = readLegacy<BlockDef[]>('aod3-today-blocks')
   return legacy && legacy.length ? legacy.map(normalizeDef) : seedBlockDefs()
 }
 
-const EMPTY_GOALS: Goal[] = Array.from({ length: 4 }, () => ({ text: '', done: false }))
+const EMPTY_GOALS: Goal[] = []
 
 // чтение legacy-ключа напрямую из localStorage (для миграции)
 const readLegacy = <T,>(key: string): T | null => {
@@ -320,13 +296,13 @@ const readLegacy = <T,>(key: string): T | null => {
 }
 
 // данные дня для новой модели блоков: при первом открытии даты
-// (ключа aod2-today-data-<date> ещё нет) мигрируем legacy-ключи;
+// (ключа aod3-today-data-<date> ещё нет) мигрируем legacy-ключи;
 // blank — для readOnly-дней (вчера): без дефолтов, только то, что было в legacy
 export const seedTodayData = (dateKey: string, wdName: string, blank = false): TodayData => {
-  const goals = readLegacy<Goal[]>(`aod2-goals-${dateKey}`) ?? (blank ? [] : EMPTY_GOALS)
-  const sched = readLegacy<SchedBlock[]>(`aod2-schedblocks-${dateKey}`) ?? (blank ? [] : seedSchedBlocks(dateKey, wdName))
-  const day = readLegacy<DayInstance[]>(`aod2-day-${dateKey}`) ?? (blank ? [] : seedDay())
-  const tasks = readLegacy<Task[]>(`aod2-tasks-${dateKey}`) ?? []
+  const goals = readLegacy<Goal[]>(`aod3-goals-${dateKey}`) ?? (blank ? [] : EMPTY_GOALS)
+  const sched = readLegacy<SchedBlock[]>(`aod3-schedblocks-${dateKey}`) ?? (blank ? [] : seedSchedBlocks(dateKey, wdName))
+  const day = readLegacy<DayInstance[]>(`aod3-day-${dateKey}`) ?? (blank ? [] : seedDay())
+  const tasks = readLegacy<Task[]>(`aod3-tasks-${dateKey}`) ?? []
   return {
     goals: {
       items: goals.map((g) => ({ id: uid(), text: g.text, done: g.done })),
@@ -373,22 +349,10 @@ export const PALETTE_HEX: Record<string, string> = {
   'var(--accent)': '#2474ff',
 }
 
-// стартовые данные заметок
-export const SEED_FOLDERS: Folder[] = [
-  { id: 'inbox', name: 'Входящие' },
-  { id: 'ideas', name: 'Идеи' },
-  { id: 'thoughts', name: 'Выгрузка мыслей' },
-]
+// стартовые данные заметок (пусто по умолчанию)
+export const SEED_FOLDERS: Folder[] = []
 
-export const SEED_NOTES: Note[] = [
-  {
-    id: 'welcome',
-    folderId: 'inbox',
-    title: 'Внешняя память',
-    body: 'ОЗУ держит 7±2 объекта — всё остальное сюда.\n\nСоздавай папки слева, пиши заметки, ничего не держи в голове. Данные хранятся в этом браузере.',
-    updated: Date.now(),
-  },
-]
+export const SEED_NOTES: Note[] = []
 
 // ─── Эмоции (колесо Плутчика) ───
 

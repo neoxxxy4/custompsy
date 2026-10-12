@@ -17,14 +17,14 @@ export interface DayStats {
   blockLabel: string
 }
 
-// блоки расписания сегодня: новый ключ aod2-schedblocks-<date>,
-// при его отсутствии — виртуальный сид из WEEK_TEMPLATE + legacy-отметки aod2-sched-<date>
+// блоки расписания сегодня: новый ключ aod3-schedblocks-<date>,
+// при его отсутствии — виртуальный сид из WEEK_TEMPLATE + legacy-отметки aod3-sched-<date>
 export function todayBlocks(): SchedBlock[] {
   const tk = todayKey()
   const wdName = WD[new Date().getDay()]
-  const stored = readLS<SchedBlock[] | null>(`aod2-schedblocks-${tk}`, null)
+  const stored = readLS<SchedBlock[] | null>(`aod3-schedblocks-${tk}`, null)
   if (stored) return stored
-  const legacy = readLS<Record<string, boolean>>(`aod2-sched-${tk}`, {})
+  const legacy = readLS<Record<string, boolean>>(`aod3-sched-${tk}`, {})
   const plan = WEEK_TEMPLATE.find((d) => d.day === wdName) ?? WEEK_TEMPLATE[0]
   return [...plan.blocks]
     .sort((a, b) => a.time.localeCompare(b.time))
@@ -40,8 +40,8 @@ export function todayBlocks(): SchedBlock[] {
 export function getDayStats(): DayStats {
   const tk = todayKey()
   const now = new Date()
-  const lists = readLS<DayInstance[]>(`aod2-day-${tk}`, [])
-  const goals = readLS<Goal[]>(`aod2-goals-${tk}`, [])
+  const lists = readLS<DayInstance[]>(`aod3-day-${tk}`, [])
+  const goals = readLS<Goal[]>(`aod3-goals-${tk}`, [])
   const blocks = todayBlocks()
 
   const cTotal = lists.reduce((n, d) => n + d.items.length, 0)
@@ -94,9 +94,9 @@ export function getSystemStatus(): SysStatus {
   const tk = todayKey()
   const custom = readLS<CalEvent[]>('aod-cal', [])
   const calToday = [...CAL_EVENTS, ...custom].filter((e) => e.date === tk).length
-  const notesCount = readLS<unknown[]>('aod2-notes', []).length
-  const diaryToday = !!readLS<Record<string, unknown>>('aod2-diary', {})[tk]
-  const blogCount = readLS<unknown[]>('aod2-blog', []).length
+  const notesCount = readLS<unknown[]>('aod3-notes', []).length
+  const diaryToday = !!readLS<Record<string, unknown>>('aod3-diary', {})[tk]
+  const blogCount = readLS<unknown[]>('aod3-blog', []).length
 
   const bal = readLS<number[] | null>('aod-balance', null)
   let balanceLabel = 'нет оценки'

@@ -4,7 +4,7 @@ import type { ListRecord } from '../views/practice/store'
 import { recItemStats } from '../views/practice/store'
 
 // шторка выбора при добавлении под-списка в блок:
-// «Новый» или готовый из «Записей» (aod2-listrecs)
+// «Новый» или готовый из «Записей» (aod3-listrecs)
 export default function PickListSheet({
   kind,
   records,

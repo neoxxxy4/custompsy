@@ -103,7 +103,7 @@ export default function PathView() {
 type AnalysisView = 'plus' | 'minus' | 'strengths' | 'gaps'
 
 function AnalysisTab() {
-  const [stored] = useLS<{ snapshots: Record<string, number[][]> }>('aod2-selfmap-v1', { snapshots: {} })
+  const [stored] = useLS<{ snapshots: Record<string, number[][]> }>('aod3-selfmap-v1', { snapshots: {} })
   const [view, setView] = useState<AnalysisView>('plus')
   const snapshots = stored?.snapshots ?? {}
   const dates = useMemo(() => Object.keys(snapshots).sort(), [snapshots])
@@ -196,9 +196,9 @@ function AnalysisTab() {
 // ─── diary ───
 
 function DiaryTab() {
-  const [notes] = useLS<Note[]>('aod2-notes', [])
-  const [listrecs] = useLS<ListRecord[]>('aod2-listrecs', [])
-  const [diary] = useLS<Diary>('aod2-diary', {})
+  const [notes] = useLS<Note[]>('aod3-notes', [])
+  const [listrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
+  const [diary] = useLS<Diary>('aod3-diary', {})
   const [selected, setSelected] = useState<EmotionTag | null>(null)
 
   const tags = useMemo(() => {
@@ -274,7 +274,7 @@ function EmotionDetail({ tag, onClose }: { tag: EmotionTag; onClose: () => void 
 // ─── circle ───
 
 function CircleTab() {
-  const [sessions] = useLS<SessionRec[]>('aod2-sessions', [])
+  const [sessions] = useLS<SessionRec[]>('aod3-sessions', [])
 
   return (
     <section className="rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
@@ -301,8 +301,8 @@ type SessionMiniTab = 'summary' | 'tasks'
 
 function SessionTab() {
   const [mini, setMini] = useState<SessionMiniTab>('summary')
-  const [sessions, setSessions] = useLS<SessionRec[]>('aod2-sessions', [])
-  const [weekTasks, setWeekTasks] = useLS<WeekTask[]>('aod2-week-tasks', [])
+  const [sessions, setSessions] = useLS<SessionRec[]>('aod3-sessions', [])
+  const [weekTasks, setWeekTasks] = useLS<WeekTask[]>('aod3-week-tasks', [])
   const [taskDraft, setTaskDraft] = useState('')
   const [showNew, setShowNew] = useState(false)
   const [newSummary, setNewSummary] = useState('')
@@ -335,11 +335,11 @@ function SessionTab() {
       const d = new Date(today)
       d.setDate(d.getDate() + i)
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      const stored = readLS<TodayData>(`aod2-today-data-${key}`)
+      const stored = readLS<TodayData>(`aod3-today-data-${key}`)
       const data = stored || seedTodayData(key, WD[d.getDay()])
       const newItems: BlockItem[] = pending.map((t) => ({ id: uid(), text: t.text, done: false }))
       const next: TodayData = { ...data, tasks: { ...data.tasks, items: [...data.tasks.items, ...newItems] } }
-      localStorage.setItem(`aod2-today-data-${key}`, JSON.stringify(next))
+      localStorage.setItem(`aod3-today-data-${key}`, JSON.stringify(next))
     }
     setWeekTasks((ts) => ts.map((t) => ({ ...t, done: true })))
   }
@@ -435,11 +435,11 @@ function SessionTab() {
 }
 
 function SummaryView() {
-  const [level] = useLS<number>('aod2-path-level', 1)
-  const [stored] = useLS<{ snapshots: Record<string, number[][]> }>('aod2-selfmap-v1', { snapshots: {} })
-  const [dNotes] = useLS<Note[]>('aod2-notes', [])
-  const [dListrecs] = useLS<ListRecord[]>('aod2-listrecs', [])
-  const [dDiary] = useLS<Diary>('aod2-diary', {})
+  const [level] = useLS<number>('aod3-path-level', 1)
+  const [stored] = useLS<{ snapshots: Record<string, number[][]> }>('aod3-selfmap-v1', { snapshots: {} })
+  const [dNotes] = useLS<Note[]>('aod3-notes', [])
+  const [dListrecs] = useLS<ListRecord[]>('aod3-listrecs', [])
+  const [dDiary] = useLS<Diary>('aod3-diary', {})
 
   const snapshots = stored?.snapshots ?? {}
   const analysisItems = useMemo(() => {
@@ -524,7 +524,7 @@ function SummaryView() {
 // ─── levels ───
 
 function LevelsTab() {
-  const [level, setLevel] = useLS<number>('aod2-path-level', 1)
+  const [level, setLevel] = useLS<number>('aod3-path-level', 1)
 
   return (
     <section className="space-y-2">
