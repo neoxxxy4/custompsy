@@ -22,6 +22,15 @@ interface WeekTask {
   done: boolean
 }
 
+const SEED_SESSIONS: SessionRec[] = [
+  {
+    id: 'seed-path-levels',
+    date: new Date().toISOString().slice(0, 10),
+    summary:
+      'Личный путь (уровни): 1) Вход и калибровка — стабилизация, снижение тревоги, формирование наблюдателя; 2) Наблюдатель — осознание механизмов, отделение от реакций, видение паттернов; 3) Антрополог — исследование корней, детские сценарии, глубинные убеждения; 4) Инженер поведения — перепроектирование действий, новые стратегии, закрепление моделей; 5) Архитектор идентичности — сборка новой роли, структура ответственности, профессиональная позиция; 6) Навигация будущего — стратегический масштаб, план 3–5 лет, расширение влияния.',
+  },
+]
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const safeDate = (d?: string | null): string => {
   if (!d || !DATE_RE.test(d)) return '—'
@@ -38,7 +47,7 @@ const readLS = <T,>(key: string): T | null => {
 }
 
 export default function SessionView() {
-  const [sessions, setSessions] = useLS<SessionRec[]>('aod4-sessions', [])
+  const [sessions, setSessions] = useLS<SessionRec[]>('aod4-sessions', SEED_SESSIONS)
   const [weekTasks, setWeekTasks] = useLS<WeekTask[]>('aod4-week-tasks', [])
   const [taskDraft, setTaskDraft] = useState('')
   const [showNew, setShowNew] = useState(false)

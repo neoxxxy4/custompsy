@@ -56,7 +56,7 @@ export const TOOL_META: Record<
   chat: { label: 'Чат', icon: MessageCircle },
   emotions: { label: 'Эмоции', icon: Flower2 },
   therapy: { label: 'Терапия', icon: Sparkles },
-  map: { label: 'Карта', icon: MapIcon },
+  map: { label: 'Самооценка', icon: MapIcon },
   session: { label: 'Сессия', icon: Settings },
   path: { label: 'Путь', icon: Compass },
   settings: { label: 'Настройки', icon: Settings },
@@ -79,7 +79,7 @@ export const DEFAULT_TABS: AppTab[] = [
         label: 'Все',
         items: [
           { id: 'records', label: 'Записи' },
-          { id: 'map', label: 'Карта' },
+          { id: 'map', label: 'Самооценка' },
           { id: 'emotions', label: 'Эмоции' },
         ],
       },

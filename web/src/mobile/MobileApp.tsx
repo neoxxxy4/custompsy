@@ -4,7 +4,6 @@ import TodayView from './TodayView'
 import RecordsView, { type FolderKey } from './RecordsView'
 import MapView from './MapView'
 import EmotionsView from './EmotionsView'
-import PathView from './PathView'
 import JourneyView from './JourneyView'
 import SettingsView from './SettingsView'
 import TherapyView from './TherapyView'
@@ -95,8 +94,6 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         return <EmotionsView />
       case 'session':
         return <SessionView />
-      case 'path':
-        return <PathView />
       default:
         return null
     }
