@@ -1,9 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Plus, Users, X } from 'lucide-react'
-import { useEffect } from 'react'
 import { uid, useLS } from '../views/practice/store'
 import SocialGraph from './SocialGraph'
-import { seedSocialData } from './socialSeed'
 import {
   SOCIAL_LAYERS,
   THINKING_TYPES,
@@ -35,15 +33,6 @@ export default function SocialView() {
   const [people, setPeople] = useLS<Person[]>(PEOPLE_KEY, [])
   const [sets, setSets] = useLS<SocialSet[]>(SETS_KEY, DEFAULT_SETS)
   const [tags, setTags] = useLS<SocialTag[]>(TAGS_KEY, DEFAULT_TAGS)
-
-  useEffect(() => {
-    if (people.length === 0) {
-      const seeded = seedSocialData()
-      setPeople(seeded.people)
-      setSets(seeded.sets)
-      setTags(seeded.tags)
-    }
-  }, [people.length, setPeople, setSets, setTags])
 
   const [view, setView] = useState<ViewMode>('graph')
   const [filterLayer, setFilterLayer] = useState<SocialLayer | 'all'>('all')
