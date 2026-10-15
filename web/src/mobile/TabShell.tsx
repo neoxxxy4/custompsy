@@ -1,20 +1,26 @@
 import type { ReactNode } from 'react'
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, MoreVertical } from 'lucide-react'
-import { TOOL_META, type MTab } from './navConfig'
-
-const TOOL_ORDER: MTab[] = ['session', 'map', 'emotions', 'therapy', 'progress', 'path']
+import { ChevronDown, ChevronUp } from 'lucide-react'
+import { TOOL_META, type AppTab, type MTab } from './navConfig'
 
 export default function TabShell({
-  toolView,
+  tab,
+  activeFolderId,
+  onFolder,
   onTool,
-  onSettings,
+  toolView,
 }: {
-  toolView?: ReactNode
+  tab: AppTab
+  activeFolderId: string
+  onFolder: (id: string) => void
   onTool: (id: MTab) => void
-  onSettings?: () => void
+  toolView?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
+
+  const folders = tab.folders ?? []
+  const activeFolder = folders.find((f) => f.id === activeFolderId) ?? folders[0]
+  const items = activeFolder?.items ?? []
 
   return (
     <div className="min-h-screen pt-12">
@@ -30,38 +36,30 @@ export default function TabShell({
             onClick={() => setExpanded((v) => !v)}
             className="flex-none grid place-items-center rounded-full"
             style={{ width: 26, height: 26, background: 'var(--surface-2)', color: 'var(--muted)' }}
-            aria-label={expanded ? 'Свернуть' : 'Развернуть'}
+            aria-label={expanded ? 'Свернуть папки' : 'Развернуть папки'}
           >
             {expanded ? <ChevronUp size={14} strokeWidth={2.5} /> : <ChevronDown size={14} strokeWidth={2.5} />}
           </button>
 
           <div className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar">
-            {TOOL_ORDER.map((id) => {
-              const meta = TOOL_META[id]
+            {items.length === 0 && (
+              <span className="px-2 py-1" style={{ fontSize: 12, color: 'var(--muted)' }}>Пусто</span>
+            )}
+            {items.map((item) => {
+              const meta = TOOL_META[item.id]
               if (!meta) return null
               return (
                 <button
-                  key={id}
-                  onClick={() => onTool(id)}
+                  key={item.id}
+                  onClick={() => onTool(item.id)}
                   className="flex-none rounded-full px-3 py-1"
                   style={{ background: 'var(--surface-2)', fontSize: 12, fontWeight: 500, color: 'var(--light)' }}
                 >
-                  {meta.label}
+                  {item.label || meta.label}
                 </button>
               )
             })}
           </div>
-
-          {onSettings && (
-            <button
-              onClick={onSettings}
-              className="flex-none grid place-items-center rounded-full"
-              style={{ width: 26, height: 26, background: 'var(--surface-2)', color: 'var(--muted)' }}
-              aria-label="Настройки"
-            >
-              <MoreVertical size={16} strokeWidth={2} />
-            </button>
-          )}
         </div>
       </div>
 
@@ -72,23 +70,25 @@ export default function TabShell({
           onClick={() => setExpanded(false)}
         >
           <div
-            className="grid grid-cols-3 gap-2 rounded-2xl p-3"
+            className="flex items-center gap-2 rounded-full px-2 py-1 overflow-x-auto no-scrollbar"
             style={{ background: 'var(--surface)', border: '1px solid var(--line)', marginTop: 44 }}
             onClick={(e) => e.stopPropagation()}
           >
-            {TOOL_ORDER.map((id) => {
-              const meta = TOOL_META[id]
-              if (!meta) return null
-              const Icon = meta.icon
+            {folders.map((folder) => {
+              const active = folder.id === activeFolderId
               return (
                 <button
-                  key={id}
-                  onClick={() => { onTool(id); setExpanded(false) }}
-                  className="flex flex-col items-center gap-1.5 rounded-xl px-2 py-3"
-                  style={{ background: 'var(--surface-2)', border: '1px solid var(--line)' }}
+                  key={folder.id}
+                  onClick={() => { onFolder(folder.id); setExpanded(false) }}
+                  className="flex-none rounded-full px-3 py-1"
+                  style={{
+                    background: active ? 'var(--accent)' : 'var(--surface-2)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: active ? 'var(--on-fill)' : 'var(--light)',
+                  }}
                 >
-                  <Icon size={22} strokeWidth={1.8} style={{ color: 'var(--light)' }} />
-                  <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text)' }}>{meta.label}</span>
+                  {folder.label}
                 </button>
               )
             })}

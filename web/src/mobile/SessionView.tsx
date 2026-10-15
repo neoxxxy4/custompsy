@@ -99,17 +99,27 @@ const dayStat = (dateKey: string) => {
   return { done, total, data }
 }
 
-type SessionTab = 'session' | 'selfmap' | 'emotions' | 'therapy' | 'progress' | 'path'
+type AnalyticsTab = 'selfmap' | 'emotions' | 'therapy' | 'progress' | 'path'
+type SessionTab = 'session' | AnalyticsTab
 type Period = 'week' | 'sprint' | 'all' | 'range'
 
-const TABS: { id: SessionTab; label: string }[] = [
-  { id: 'session', label: 'Сессия' },
-  { id: 'selfmap', label: 'Самооценка' },
-  { id: 'emotions', label: 'Эмоции' },
-  { id: 'therapy', label: 'Терапия' },
-  { id: 'progress', label: 'Прогресс' },
-  { id: 'path', label: 'Путь' },
-]
+const ANALYTICS_KEY = 'aod4-session-analytics-tabs'
+const ANALYTICS_LABELS: Record<AnalyticsTab, string> = {
+  selfmap: 'Самооценка',
+  emotions: 'Эмоции',
+  therapy: 'Терапия',
+  progress: 'Прогресс',
+  path: 'Путь',
+}
+const DEFAULT_ANALYTICS: AnalyticsTab[] = ['selfmap', 'emotions', 'therapy', 'progress', 'path']
+
+function useSessionTabs() {
+  const [enabled] = useLS<AnalyticsTab[]>(ANALYTICS_KEY, DEFAULT_ANALYTICS)
+  const tabs: { id: SessionTab; label: string }[] = [{ id: 'session', label: 'Сессия' }]
+  const safe = (enabled ?? []).filter((id): id is AnalyticsTab => id in ANALYTICS_LABELS)
+  safe.forEach((id) => tabs.push({ id, label: ANALYTICS_LABELS[id] }))
+  return tabs
+}
 
 const PERIODS: { id: Period; label: string }[] = [
   { id: 'week', label: 'Неделя' },
@@ -119,12 +129,16 @@ const PERIODS: { id: Period; label: string }[] = [
 ]
 
 export default function SessionView() {
+  const TABS = useSessionTabs()
   const [tab, setTab] = useState<SessionTab>('session')
+  const activeTab = TABS.some((t) => t.id === tab) ? tab : 'session'
+
   const [period, setPeriod] = useState<Period>('week')
   const [rangeFrom, setRangeFrom] = useState(daysAgo(7))
   const [rangeTo, setRangeTo] = useState(todayIso())
+  const [now] = useState(() => Date.now())
 
-  const showPeriod = tab === 'emotions' || tab === 'therapy' || tab === 'progress'
+  const showPeriod = activeTab === 'emotions' || activeTab === 'therapy' || activeTab === 'progress'
 
   return (
     <div className="px-4 pt-5 pb-28 min-h-screen">
@@ -144,8 +158,8 @@ export default function SessionView() {
             style={{
               fontSize: 12,
               fontWeight: 600,
-              background: tab === t.id ? 'var(--accent)' : 'transparent',
-              color: tab === t.id ? 'var(--on-fill)' : 'var(--muted)',
+              background: activeTab === t.id ? 'var(--accent)' : 'transparent',
+              color: activeTab === t.id ? 'var(--on-fill)' : 'var(--muted)',
             }}
           >
             {t.label}
@@ -197,21 +211,20 @@ export default function SessionView() {
         </div>
       )}
 
-      {tab === 'session' && <SessionTab />}
-      {tab === 'selfmap' && <SelfmapTab />}
-      {tab === 'emotions' && <EmotionsTab period={period} rangeFrom={rangeFrom} rangeTo={rangeTo} />}
-      {tab === 'therapy' && <TherapyTab period={period} rangeFrom={rangeFrom} rangeTo={rangeTo} />}
-      {tab === 'progress' && <ProgressTab period={period} rangeFrom={rangeFrom} rangeTo={rangeTo} />}
-      {tab === 'path' && <PathTab />}
+      {activeTab === 'session' && <SessionTab />}
+      {activeTab === 'selfmap' && <SelfmapTab />}
+      {activeTab === 'emotions' && <EmotionsTab period={period} rangeFrom={rangeFrom} rangeTo={rangeTo} now={now} />}
+      {activeTab === 'therapy' && <TherapyTab period={period} rangeFrom={rangeFrom} rangeTo={rangeTo} now={now} />}
+      {activeTab === 'progress' && <ProgressTab period={period} rangeFrom={rangeFrom} rangeTo={rangeTo} now={now} />}
+      {activeTab === 'path' && <PathTab />}
     </div>
   )
 }
 
 // ─── helpers ───
 
-function usePeriodBounds(period: Period, rangeFrom: string, rangeTo: string) {
+function usePeriodBounds(period: Period, rangeFrom: string, rangeTo: string, now: number) {
   return useMemo(() => {
-    const now = Date.now()
     let from = now - 7 * 86400000
     let to = now
     if (period === 'sprint') {
@@ -223,7 +236,7 @@ function usePeriodBounds(period: Period, rangeFrom: string, rangeTo: string) {
       to = parseDate(rangeTo) + 86400000
     }
     return { from, to }
-  }, [period, rangeFrom, rangeTo])
+  }, [period, rangeFrom, rangeTo, now])
 }
 
 // ─── session ───
@@ -318,7 +331,7 @@ type AnalysisView = 'plus' | 'minus' | 'strengths' | 'gaps'
 function SelfmapTab() {
   const [stored] = useLS<{ snapshots: Record<string, number[][]> }>('aod4-selfmap-v1', { snapshots: {} })
   const [view, setView] = useState<AnalysisView>('plus')
-  const snapshots = stored?.snapshots ?? {}
+  const snapshots = useMemo(() => stored?.snapshots ?? {}, [stored?.snapshots])
   const dates = useMemo(() => Object.keys(snapshots).sort(), [snapshots])
   const [date1, setDate1] = useState(dates[0] ?? '')
   const [date2, setDate2] = useState(dates[dates.length - 1] ?? '')
@@ -408,11 +421,11 @@ function SelfmapTab() {
 
 // ─── emotions ───
 
-function EmotionsTab({ period, rangeFrom, rangeTo }: { period: Period; rangeFrom: string; rangeTo: string }) {
+function EmotionsTab({ period, rangeFrom, rangeTo, now }: { period: Period; rangeFrom: string; rangeTo: string; now: number }) {
   const [notes] = useLS<Note[]>('aod4-notes', [])
   const [listrecs] = useLS<ListRecord[]>('aod4-listrecs', [])
   const [diary] = useLS<Diary>('aod4-diary', {})
-  const bounds = usePeriodBounds(period, rangeFrom, rangeTo)
+  const bounds = usePeriodBounds(period, rangeFrom, rangeTo, now)
 
   const tags = useMemo(() => {
     return allEmotionTags(notes, listrecs, diary).filter((t) => t.created >= bounds.from && t.created < bounds.to)
@@ -472,9 +485,9 @@ function EmotionsTab({ period, rangeFrom, rangeTo }: { period: Period; rangeFrom
 
 // ─── therapy ───
 
-function TherapyTab({ period, rangeFrom, rangeTo }: { period: Period; rangeFrom: string; rangeTo: string }) {
+function TherapyTab({ period, rangeFrom, rangeTo, now }: { period: Period; rangeFrom: string; rangeTo: string; now: number }) {
   const [notes] = useLS<TherapyNote[]>('aod4-therapy-notes', [])
-  const bounds = usePeriodBounds(period, rangeFrom, rangeTo)
+  const bounds = usePeriodBounds(period, rangeFrom, rangeTo, now)
 
   const filtered = useMemo(() => {
     return notes.filter((n) => n.ts >= bounds.from && n.ts < bounds.to)
@@ -520,8 +533,8 @@ function TherapyTab({ period, rangeFrom, rangeTo }: { period: Period; rangeFrom:
 
 // ─── progress ───
 
-function ProgressTab({ period, rangeFrom, rangeTo }: { period: Period; rangeFrom: string; rangeTo: string }) {
-  const bounds = usePeriodBounds(period, rangeFrom, rangeTo)
+function ProgressTab({ period, rangeFrom, rangeTo, now }: { period: Period; rangeFrom: string; rangeTo: string; now: number }) {
+  const bounds = usePeriodBounds(period, rangeFrom, rangeTo, now)
 
   const days = useMemo(() => {
     const list: { key: string; done: number; total: number; pct: number }[] = []

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import {
   Flower2,
   Heart,
@@ -5,20 +6,19 @@ import {
   LayoutGrid,
   Map as MapIcon,
   MessageCircle,
-  MessageSquare,
   Route,
+  Settings,
   TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
 
-export type AppTabId = 'tools' | 'day' | 'chat' | 'session'
+export type AppTabId = 'tools' | 'day' | 'chat' | 'session' | 'settings'
 
 export type MTab =
   | 'chat'
   | 'emotions'
   | 'therapy'
   | 'map'
-  | 'session'
   | 'progress'
   | 'path'
 
@@ -49,7 +49,6 @@ export const TOOL_META: Record<
   emotions: { label: 'Эмоции', icon: Flower2 },
   therapy: { label: 'Терапия', icon: Heart },
   map: { label: 'Самооценка', icon: MapIcon },
-  session: { label: 'Сессия', icon: MessageSquare },
   progress: { label: 'Прогресс', icon: TrendingUp },
   path: { label: 'Путь', icon: Route },
 }
@@ -70,7 +69,6 @@ export const DEFAULT_TABS: AppTab[] = [
         id: 'folder-tools-all',
         label: 'Все',
         items: [
-          { id: 'session', label: 'Сессия' },
           { id: 'map', label: 'Самооценка' },
           { id: 'emotions', label: 'Эмоции' },
           { id: 'therapy', label: 'Терапия' },
@@ -89,9 +87,63 @@ export const DEFAULT_TABS: AppTab[] = [
   {
     id: 'session',
     label: 'Сессия',
-    icon: MessageSquare,
+    icon: MessageCircle,
+    folders: [],
+  },
+  {
+    id: 'settings',
+    label: 'Настройки',
+    icon: Settings,
     folders: [],
   },
 ]
 
+const STORAGE_KEY = 'aod4-app-tabs'
+
 export const validToolIds = new Set<MTab>(Object.keys(TOOL_META) as MTab[])
+
+export function readTabs(): AppTab[] {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY)
+    if (!s) return DEFAULT_TABS
+    const parsed = JSON.parse(s) as AppTab[]
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_TABS
+    return parsed.map((tab) => {
+      const base = DEFAULT_TABS.find((t) => t.id === tab.id)
+      let folders = (tab.folders ?? []).map((folder) => ({
+        ...folder,
+        items: (folder.items ?? []).filter((item) => validToolIds.has(item.id)),
+      }))
+      if (base) {
+        const existingIds = new Set(folders.map((f) => f.id))
+        const missing = base.folders.filter((f) => !existingIds.has(f.id))
+        folders = [...missing, ...folders]
+      }
+      return { ...tab, folders }
+    })
+  } catch {
+    return DEFAULT_TABS
+  }
+}
+
+export function writeTabs(tabs: AppTab[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function useAppTabs(): [AppTab[], (t: AppTab[] | ((prev: AppTab[]) => AppTab[])) => void] {
+  const [tabs, setTabsState] = useState<AppTab[]>(() => readTabs())
+
+  useEffect(() => {
+    writeTabs(tabs)
+  }, [tabs])
+
+  const setTabs = (next: AppTab[] | ((prev: AppTab[]) => AppTab[])) => {
+    setTabsState((prev) => (typeof next === 'function' ? (next as (prev: AppTab[]) => AppTab[])(prev) : next))
+  }
+
+  return [tabs, setTabs]
+}

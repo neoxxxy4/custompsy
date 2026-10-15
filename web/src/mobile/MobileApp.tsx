@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import MobileBottomNav, { type AppTabId } from './MobileBottomNav'
 import TodayView from './TodayView'
 import MapView from './MapView'
@@ -10,13 +10,17 @@ import TherapyView from './TherapyView'
 import SessionView from './SessionView'
 import ChatView from './ChatView'
 import TabShell from './TabShell'
-import type { MTab } from './navConfig'
+import { DEFAULT_TABS, useAppTabs, type MTab } from './navConfig'
 import type { ThemeId } from '@/lib/theme'
 
 export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; onToggleTheme: () => void }) {
+  const [tabs, setTabs] = useAppTabs()
   const [tab, setTab] = useState<AppTabId>('day')
+  const [activeFolder, setActiveFolder] = useState<Partial<Record<AppTabId, string>>>({})
   const [activeTool, setActiveTool] = useState<MTab | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  const currentTab = useMemo(() => tabs.find((t) => t.id === tab) ?? tabs[0], [tabs, tab])
+  const toolsTab = useMemo(() => tabs.find((t) => t.id === 'tools') ?? DEFAULT_TABS.find((t) => t.id === 'tools')!, [tabs])
 
   const openTool = (id: MTab) => {
     setActiveTool(id)
@@ -29,16 +33,7 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
   const switchTab = (t: AppTabId) => {
     setTab(t)
     setActiveTool(null)
-    setSettingsOpen(false)
     globalThis.window.scrollTo({ top: 0 })
-  }
-
-  const openSettings = () => {
-    setSettingsOpen(true)
-    globalThis.window.scrollTo({ top: 0 })
-    if (globalThis.window.history.state?.screen !== 'settings') {
-      globalThis.window.history.pushState({ screen: 'settings' }, '', globalThis.window.location.href)
-    }
   }
 
   useEffect(() => {
@@ -46,19 +41,12 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
       if (activeTool) {
         setActiveTool(null)
         globalThis.window.scrollTo({ top: 0 })
-      } else if (settingsOpen) {
-        setSettingsOpen(false)
-        globalThis.window.scrollTo({ top: 0 })
       }
     }
     const onBackButton = (e: Event) => {
       if (activeTool) {
         e.preventDefault()
         setActiveTool(null)
-        globalThis.window.scrollTo({ top: 0 })
-      } else if (settingsOpen) {
-        e.preventDefault()
-        setSettingsOpen(false)
         globalThis.window.scrollTo({ top: 0 })
       }
     }
@@ -68,7 +56,7 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
       globalThis.window.removeEventListener('popstate', onPopState)
       document.removeEventListener('backbutton', onBackButton)
     }
-  }, [activeTool, settingsOpen])
+  }, [activeTool])
 
   const renderTool = (id: MTab) => {
     switch (id) {
@@ -80,8 +68,6 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         return <MapView />
       case 'emotions':
         return <EmotionsView />
-      case 'session':
-        return <SessionView />
       case 'progress':
         return <ProgressView />
       case 'path':
@@ -95,16 +81,18 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
     <div className="min-h-screen relative z-10 overflow-x-hidden" style={{ color: 'var(--text)' }}>
       {activeTool ? (
         <TabShell
+          tab={toolsTab}
+          activeFolderId={activeFolder['tools'] ?? toolsTab.folders[0]?.id ?? ''}
+          onFolder={(id: string) => setActiveFolder((prev) => ({ ...prev, tools: id }))}
           onTool={openTool}
           toolView={renderTool(activeTool)}
-          onSettings={openSettings}
         />
-      ) : settingsOpen ? (
-        <SettingsView theme={theme} onToggleTheme={onToggleTheme} />
       ) : tab === 'tools' ? (
         <TabShell
+          tab={currentTab}
+          activeFolderId={activeFolder[tab] ?? currentTab.folders[0]?.id ?? ''}
+          onFolder={(id: string) => setActiveFolder((prev) => ({ ...prev, [tab]: id }))}
           onTool={openTool}
-          onSettings={openSettings}
         />
       ) : tab === 'day' ? (
         <TodayView />
@@ -112,9 +100,11 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         <ChatView />
       ) : tab === 'session' ? (
         <SessionView />
+      ) : tab === 'settings' ? (
+        <SettingsView theme={theme} onToggleTheme={onToggleTheme} tabs={tabs} setTabs={setTabs} />
       ) : null}
 
-      {!settingsOpen && <MobileBottomNav tab={tab} onTab={switchTab} />}
+      <MobileBottomNav tab={tab} onTab={switchTab} />
     </div>
   )
 }
