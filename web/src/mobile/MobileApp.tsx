@@ -121,8 +121,8 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         <TodayView />
       ) : tab === 'chat' ? (
         <ChatView />
-      ) : tab === 'settings' ? (
-        <SettingsView theme={theme} onToggleTheme={onToggleTheme} tabs={tabs} setTabs={setTabs} />
+      ) : tab === 'session' ? (
+        <SessionView />
       ) : null}
 
       {!settingsOpen && <MobileBottomNav tab={tab} onTab={switchTab} />}

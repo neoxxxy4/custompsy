@@ -13,7 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-export type AppTabId = 'tools' | 'day' | 'chat' | 'settings'
+export type AppTabId = 'tools' | 'day' | 'chat' | 'session'
 
 export type MTab =
   | 'chat'
@@ -91,9 +91,9 @@ export const DEFAULT_TABS: AppTab[] = [
     folders: [],
   },
   {
-    id: 'settings',
-    label: 'Настройки',
-    icon: Settings,
+    id: 'session',
+    label: 'Сессия',
+    icon: MessageSquare,
     folders: [],
   },
 ]
