@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import MobileBottomNav, { type AppTabId } from './MobileBottomNav'
 import TodayView from './TodayView'
 import MapView from './MapView'
@@ -10,18 +10,13 @@ import TherapyView from './TherapyView'
 import SessionView from './SessionView'
 import ChatView from './ChatView'
 import TabShell from './TabShell'
-import { DEFAULT_TABS, useAppTabs, type MTab } from './navConfig'
+import type { MTab } from './navConfig'
 import type { ThemeId } from '@/lib/theme'
 
 export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; onToggleTheme: () => void }) {
-  const [tabs, setTabs] = useAppTabs()
   const [tab, setTab] = useState<AppTabId>('day')
-  const [activeFolder, setActiveFolder] = useState<Partial<Record<AppTabId, string>>>({})
   const [activeTool, setActiveTool] = useState<MTab | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-
-  const currentTab = useMemo(() => tabs.find((t) => t.id === tab) ?? tabs[0], [tabs, tab])
-  const toolsTab = useMemo(() => tabs.find((t) => t.id === 'tools') ?? DEFAULT_TABS.find((t) => t.id === 'tools')!, [tabs])
 
   const openTool = (id: MTab) => {
     setActiveTool(id)
@@ -100,20 +95,14 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
     <div className="min-h-screen relative z-10 overflow-x-hidden" style={{ color: 'var(--text)' }}>
       {activeTool ? (
         <TabShell
-          tab={toolsTab}
-          activeFolderId={activeFolder['tools'] ?? toolsTab.folders[0]?.id ?? ''}
-          onFolder={(id) => setActiveFolder((prev) => ({ ...prev, tools: id }))}
           onTool={openTool}
           toolView={renderTool(activeTool)}
           onSettings={openSettings}
         />
       ) : settingsOpen ? (
-        <SettingsView theme={theme} onToggleTheme={onToggleTheme} tabs={tabs} setTabs={setTabs} />
+        <SettingsView theme={theme} onToggleTheme={onToggleTheme} />
       ) : tab === 'tools' ? (
         <TabShell
-          tab={currentTab}
-          activeFolderId={activeFolder[tab] ?? currentTab.folders[0]?.id ?? ''}
-          onFolder={(id) => setActiveFolder((prev) => ({ ...prev, [tab]: id }))}
           onTool={openTool}
           onSettings={openSettings}
         />
