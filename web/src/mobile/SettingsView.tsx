@@ -47,6 +47,7 @@ const DEFAULT_TOOL_CONFIGS: Record<MTab, ToolConfig> = {
   map: { mode: 'both' },
   progress: { mode: 'both' },
   path: { mode: 'both' },
+  social: { mode: 'both' },
 }
 
 export default function SettingsView({

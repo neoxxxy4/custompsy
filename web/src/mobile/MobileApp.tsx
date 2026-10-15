@@ -9,6 +9,7 @@ import SettingsView from './SettingsView'
 import TherapyView from './TherapyView'
 import SessionView from './SessionView'
 import ChatView from './ChatView'
+import SocialView from './SocialView'
 import TabShell from './TabShell'
 import { DEFAULT_TABS, useAppTabs, type MTab } from './navConfig'
 import type { ThemeId } from '@/lib/theme'
@@ -72,6 +73,8 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         return <ProgressView />
       case 'path':
         return <PathView />
+      case 'social':
+        return <SocialView />
       default:
         return null
     }

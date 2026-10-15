@@ -9,6 +9,7 @@ import {
   Route,
   Settings,
   TrendingUp,
+  Users,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -21,6 +22,7 @@ export type MTab =
   | 'map'
   | 'progress'
   | 'path'
+  | 'social'
 
 export interface NavItem {
   id: MTab
@@ -51,6 +53,7 @@ export const TOOL_META: Record<
   map: { label: 'Самооценка', icon: MapIcon },
   progress: { label: 'Прогресс', icon: TrendingUp },
   path: { label: 'Путь', icon: Route },
+  social: { label: 'Социум', icon: Users },
 }
 
 export const DEFAULT_TABS: AppTab[] = [
@@ -74,6 +77,7 @@ export const DEFAULT_TABS: AppTab[] = [
           { id: 'therapy', label: 'Терапия' },
           { id: 'progress', label: 'Прогресс' },
           { id: 'path', label: 'Путь' },
+          { id: 'social', label: 'Социум' },
         ],
       },
     ],
