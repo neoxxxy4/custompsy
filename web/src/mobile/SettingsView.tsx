@@ -28,6 +28,27 @@ const SESSION_ANALYTICS_LABELS: Record<SessionAnalyticsTab, string> = {
 }
 const DEFAULT_SESSION_ANALYTICS: SessionAnalyticsTab[] = ['selfmap', 'emotions', 'therapy', 'progress', 'path']
 
+type ToolMode = 'work' | 'analytics' | 'both'
+interface ToolConfig {
+  mode: ToolMode
+  color?: string
+}
+
+const TOOL_CONFIG_KEY = 'aod4-tool-configs'
+const TOOL_MODE_LABELS: Record<ToolMode, string> = {
+  work: 'Работа',
+  analytics: 'Аналитика',
+  both: 'Работа + аналитика',
+}
+const DEFAULT_TOOL_CONFIGS: Record<MTab, ToolConfig> = {
+  chat: { mode: 'both' },
+  emotions: { mode: 'both' },
+  therapy: { mode: 'both' },
+  map: { mode: 'both' },
+  progress: { mode: 'both' },
+  path: { mode: 'both' },
+}
+
 export default function SettingsView({
   theme,
   onToggleTheme,
@@ -45,6 +66,8 @@ export default function SettingsView({
   const [menuFolder, setMenuFolder] = useState<string | null>(null)
   const [editingFolder, setEditingFolder] = useState<string | null>(null)
   const [analytics, setAnalytics] = useLS<SessionAnalyticsTab[]>(SESSION_ANALYTICS_KEY, DEFAULT_SESSION_ANALYTICS)
+  const [toolConfigs, setToolConfigs] = useLS<Record<MTab, ToolConfig>>(TOOL_CONFIG_KEY, DEFAULT_TOOL_CONFIGS)
+  const [toolSheet, setToolSheet] = useState<MTab | null>(null)
 
   const updateTabs = (next: AppTab[]) => {
     setTabs(next)
@@ -99,14 +122,38 @@ export default function SettingsView({
     }
   }
 
-  const toggleAnalytics = (id: SessionAnalyticsTab) => {
+  const moveAnalytics = (from: number, to: number) => {
+    if (from === to) return
     setAnalytics((prev) => {
-      const set = new Set(prev)
-      if (set.has(id)) set.delete(id)
-      else set.add(id)
-      return Array.from(set)
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
     })
   }
+
+  const removeAnalytics = (id: SessionAnalyticsTab) => {
+    setAnalytics((prev) => prev.filter((x) => x !== id))
+  }
+
+  const addAnalytics = (id: SessionAnalyticsTab) => {
+    if (analytics.includes(id)) return
+    setAnalytics((prev) => [...prev, id])
+  }
+
+  const updateToolConfig = (id: MTab, patch: Partial<ToolConfig>) => {
+    setToolConfigs((prev) => ({ ...prev, [id]: { ...(prev[id] ?? DEFAULT_TOOL_CONFIGS[id]), ...patch } }))
+  }
+
+  const analyticsDrag = useDragList({
+    disabled: false,
+    onReorder: moveAnalytics,
+    onLongPress: () => {},
+  })
+
+  const availableAnalytics = (Object.keys(SESSION_ANALYTICS_LABELS) as SessionAnalyticsTab[]).filter(
+    (id) => !analytics.includes(id)
+  )
 
   const currentTab = tabs.find((t) => t.id === editTab) ?? DEFAULT_TABS.find((t) => t.id === editTab)
 
@@ -132,21 +179,66 @@ export default function SettingsView({
       <section className="mt-6">
         <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--light)' }}>Аналитика сессии</h2>
         <p className="mt-1 mb-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
-          Выберите вкладки, видимые в разделе «Сессия»
+          Порядок и состав вкладок в разделе «Сессия»
         </p>
-        <div className="rounded-2xl p-3 space-y-2" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
-          {(Object.keys(SESSION_ANALYTICS_LABELS) as SessionAnalyticsTab[]).map((id) => {
-            const active = analytics.includes(id)
+        <div
+          {...analyticsDrag.containerProps}
+          className="rounded-2xl p-3 space-y-2"
+          style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+        >
+          {analytics.map((id, idx) => (
+            <div
+              key={id}
+              {...analyticsDrag.bindRow(idx)}
+              className="flex items-center justify-between rounded-xl px-3 py-2"
+              style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', ...analyticsDrag.rowStyle(idx) }}
+            >
+              <span style={{ fontSize: 14, color: 'var(--light)' }}>{SESSION_ANALYTICS_LABELS[id]}</span>
+              <button onClick={() => removeAnalytics(id)} className="p-1" style={{ color: 'var(--muted)' }}>
+                <X size={14} strokeWidth={1.8} />
+              </button>
+            </div>
+          ))}
+          {analytics.length === 0 && <p style={{ fontSize: 12, color: 'var(--muted)' }}>Нет вкладок</p>}
+        </div>
+        {availableAnalytics.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {availableAnalytics.map((id) => (
+              <button
+                key={id}
+                onClick={() => addAnalytics(id)}
+                className="px-2 py-1 rounded-lg"
+                style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', fontSize: 11, color: 'var(--muted)' }}
+              >
+                + {SESSION_ANALYTICS_LABELS[id]}
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-6">
+        <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--light)' }}>Инструменты</h2>
+        <p className="mt-1 mb-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
+          Режим работы, визуал и цвета
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {(Object.keys(TOOL_META) as MTab[]).map((id) => {
+            const meta = TOOL_META[id]
+            const cfg = toolConfigs[id] ?? DEFAULT_TOOL_CONFIGS[id]
             return (
-              <label key={id} className="flex items-center justify-between">
-                <span style={{ fontSize: 14, color: 'var(--light)' }}>{SESSION_ANALYTICS_LABELS[id]}</span>
-                <input
-                  type="checkbox"
-                  checked={active}
-                  onChange={() => toggleAnalytics(id)}
-                  className="w-5 h-5 accent-[var(--accent)]"
-                />
-              </label>
+              <button
+                key={id}
+                onClick={() => setToolSheet(id)}
+                className="rounded-2xl p-3 text-left"
+                style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <meta.icon size={16} strokeWidth={1.8} style={{ color: cfg.color || 'var(--accent)' }} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--light)' }}>{meta.label}</span>
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>{TOOL_MODE_LABELS[cfg.mode]}</span>
+              </button>
             )
           })}
         </div>
@@ -215,6 +307,95 @@ export default function SettingsView({
           onDelete={() => { removeFolder(menuFolder); setMenuFolder(null) }}
         />
       )}
+
+      {toolSheet && (
+        <ToolConfigSheet
+          id={toolSheet}
+          config={toolConfigs[toolSheet] ?? DEFAULT_TOOL_CONFIGS[toolSheet]}
+          onChange={(patch) => updateToolConfig(toolSheet, patch)}
+          onClose={() => setToolSheet(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function ToolConfigSheet({
+  id,
+  config,
+  onChange,
+  onClose,
+}: {
+  id: MTab
+  config: ToolConfig
+  onChange: (patch: Partial<ToolConfig>) => void
+  onClose: () => void
+}) {
+  const meta = TOOL_META[id]
+  const modes: ToolMode[] = ['work', 'analytics', 'both']
+  const colors = ['var(--accent)', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899']
+
+  return (
+    <div className="fixed inset-0 z-[60]" onClick={onClose}>
+      <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.6)' }} />
+      <div
+        className="absolute inset-x-0 bottom-0 rounded-t-2xl p-4"
+        style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderBottom: 'none', paddingBottom: 'env(safe-area-inset-bottom)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="grid place-items-center pb-3">
+          <span className="w-10 h-1 rounded-full" style={{ background: 'var(--line-strong)' }} />
+        </div>
+        <h2 className="mb-4 flex items-center gap-2" style={{ fontFamily: 'var(--font-body)', fontSize: 17, fontWeight: 600, color: 'var(--light)' }}>
+          <meta.icon size={18} strokeWidth={1.8} style={{ color: config.color || 'var(--accent)' }} />
+          {meta.label}
+        </h2>
+
+        <p className="mb-2" style={{ fontSize: 12, color: 'var(--muted)' }}>Режим</p>
+        <div className="flex gap-2 mb-4">
+          {modes.map((m) => (
+            <button
+              key={m}
+              onClick={() => onChange({ mode: m })}
+              className="flex-1 py-2 rounded-xl"
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                background: config.mode === m ? 'var(--accent)' : 'var(--surface-2)',
+                color: config.mode === m ? 'var(--on-fill)' : 'var(--muted)',
+                border: '1px solid var(--line)',
+              }}
+            >
+              {TOOL_MODE_LABELS[m]}
+            </button>
+          ))}
+        </div>
+
+        <p className="mb-2" style={{ fontSize: 12, color: 'var(--muted)' }}>Акцентный цвет</p>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {colors.map((c) => (
+            <button
+              key={c}
+              onClick={() => onChange({ color: c })}
+              className="rounded-full"
+              style={{
+                width: 28,
+                height: 28,
+                background: c,
+                boxShadow: config.color === c ? '0 0 0 2px var(--light)' : 'none',
+              }}
+            />
+          ))}
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full py-3 rounded-xl"
+          style={{ border: '1px solid var(--line-strong)', color: 'var(--muted)', fontSize: 14 }}
+        >
+          Закрыть
+        </button>
+      </div>
     </div>
   )
 }
