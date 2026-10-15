@@ -1,29 +1,27 @@
 import { useState, useEffect } from 'react'
 import {
-  Compass,
   Flower2,
+  Heart,
   Home,
   LayoutGrid,
   Map as MapIcon,
   MessageCircle,
-  Radar,
+  MessageSquare,
+  Route,
   Settings,
-  Sparkles,
-  SquarePen,
+  TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
 
-export type AppTabId = 'tools' | 'day' | 'chat' | 'session'
+export type AppTabId = 'tools' | 'day' | 'chat' | 'settings'
 
 export type MTab =
-  | 'records'
-  | 'graph'
-  | 'journey'
   | 'chat'
   | 'emotions'
   | 'therapy'
   | 'map'
   | 'session'
+  | 'progress'
   | 'path'
   | 'settings'
 
@@ -50,15 +48,13 @@ export const TOOL_META: Record<
   MTab,
   { label: string; icon: LucideIcon }
 > = {
-  records: { label: 'Записи', icon: SquarePen },
-  graph: { label: 'Граф', icon: Radar },
-  journey: { label: 'Путь', icon: Compass },
   chat: { label: 'Чат', icon: MessageCircle },
   emotions: { label: 'Эмоции', icon: Flower2 },
-  therapy: { label: 'Терапия', icon: Sparkles },
+  therapy: { label: 'Терапия', icon: Heart },
   map: { label: 'Самооценка', icon: MapIcon },
-  session: { label: 'Сессия', icon: Settings },
-  path: { label: 'Путь', icon: Compass },
+  session: { label: 'Сессия', icon: MessageSquare },
+  progress: { label: 'Прогресс', icon: TrendingUp },
+  path: { label: 'Путь', icon: Route },
   settings: { label: 'Настройки', icon: Settings },
 }
 
@@ -78,9 +74,12 @@ export const DEFAULT_TABS: AppTab[] = [
         id: 'folder-tools-all',
         label: 'Все',
         items: [
-          { id: 'records', label: 'Записи' },
+          { id: 'session', label: 'Сессия' },
           { id: 'map', label: 'Самооценка' },
           { id: 'emotions', label: 'Эмоции' },
+          { id: 'therapy', label: 'Терапия' },
+          { id: 'progress', label: 'Прогресс' },
+          { id: 'path', label: 'Путь' },
         ],
       },
     ],
@@ -92,9 +91,9 @@ export const DEFAULT_TABS: AppTab[] = [
     folders: [],
   },
   {
-    id: 'session',
-    label: 'Сессия',
-    icon: Sparkles,
+    id: 'settings',
+    label: 'Настройки',
+    icon: Settings,
     folders: [],
   },
 ]

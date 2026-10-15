@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import MobileBottomNav, { type AppTabId } from './MobileBottomNav'
 import TodayView from './TodayView'
-import RecordsView, { type FolderKey } from './RecordsView'
 import MapView from './MapView'
 import EmotionsView from './EmotionsView'
-import JourneyView from './JourneyView'
+import PathView from './PathView'
+import ProgressView from './ProgressView'
 import SettingsView from './SettingsView'
 import TherapyView from './TherapyView'
 import SessionView from './SessionView'
@@ -19,7 +19,6 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
   const [activeFolder, setActiveFolder] = useState<Partial<Record<AppTabId, string>>>({})
   const [activeTool, setActiveTool] = useState<MTab | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [recordsFolder, setRecordsFolder] = useState<FolderKey>('all')
 
   const currentTab = useMemo(() => tabs.find((t) => t.id === tab) ?? tabs[0], [tabs, tab])
   const toolsTab = useMemo(() => tabs.find((t) => t.id === 'tools') ?? DEFAULT_TABS.find((t) => t.id === 'tools')!, [tabs])
@@ -78,12 +77,6 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
 
   const renderTool = (id: MTab) => {
     switch (id) {
-      case 'records':
-        return <RecordsView folder={recordsFolder} onFolder={setRecordsFolder} onHome={() => {}} />
-      case 'graph':
-        return <MapView />
-      case 'journey':
-        return <JourneyView go={(t) => openTool(t)} />
       case 'chat':
         return <ChatView />
       case 'therapy':
@@ -94,6 +87,10 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         return <EmotionsView />
       case 'session':
         return <SessionView />
+      case 'progress':
+        return <ProgressView />
+      case 'path':
+        return <PathView />
       default:
         return null
     }
@@ -124,8 +121,8 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         <TodayView />
       ) : tab === 'chat' ? (
         <ChatView />
-      ) : tab === 'session' ? (
-        <SessionView />
+      ) : tab === 'settings' ? (
+        <SettingsView theme={theme} onToggleTheme={onToggleTheme} tabs={tabs} setTabs={setTabs} />
       ) : null}
 
       {!settingsOpen && <MobileBottomNav tab={tab} onTab={switchTab} />}
