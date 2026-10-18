@@ -79,16 +79,61 @@ export default function RecordsView({
   const [diary, setDiary] = useLS<Diary>('aod4-diary', {})
 
   useEffect(() => {
-    const needsFix = notes.some((n) => typeof n.body !== 'string' || typeof n.title !== 'string')
-    if (!needsFix) return
-    setNotes(
-      notes.map((n) => ({
-        ...n,
-        title: typeof n.title === 'string' ? n.title : '',
-        body: typeof n.body === 'string' ? n.body : (n as unknown as { text?: string }).text || '',
-      })),
+    const fixNotes = notes.some((n) => typeof n.body !== 'string' || typeof n.title !== 'string')
+    if (fixNotes) {
+      setNotes(
+        notes.map((n) => ({
+          ...n,
+          title: typeof n.title === 'string' ? n.title : '',
+          body: typeof n.body === 'string' ? n.body : (n as unknown as { text?: string }).text || '',
+        })),
+      )
+    }
+
+    const fixRecs = listrecs.some(
+      (r) => !Array.isArray(r.items) || r.items.some((it) => typeof it.text !== 'string' || typeof it.done !== 'boolean'),
     )
-  }, [notes, setNotes])
+    if (fixRecs) {
+      setListrecs(
+        listrecs
+          .filter((r) => r && typeof r.id === 'string')
+          .map((r) => ({
+            ...r,
+            kind: r.kind === 'list' ? 'list' : 'checklist',
+            title: typeof r.title === 'string' ? r.title : '',
+            items: Array.isArray(r.items)
+              ? r.items
+                  .filter((it) => it && typeof it.id === 'string')
+                  .map((it) => ({
+                    id: it.id,
+                    text: typeof it.text === 'string' ? it.text : '',
+                    done: !!it.done,
+                  }))
+              : [],
+            updated: typeof r.updated === 'number' ? r.updated : Date.now(),
+          })),
+      )
+    }
+
+    const fixDiary = Object.values(diary).some(
+      (e) => typeof e.text !== 'string' || typeof e.focus !== 'number',
+    )
+    if (fixDiary) {
+      const next: Diary = {}
+      Object.entries(diary).forEach(([k, e]) => {
+        if (!e || typeof k !== 'string') return
+        next[k] = {
+          text: typeof e.text === 'string' ? e.text : '',
+          emotion: typeof e.emotion === 'string' ? e.emotion : '',
+          focus: typeof e.focus === 'number' ? e.focus : 5,
+          updated: typeof e.updated === 'number' ? e.updated : Date.now(),
+          emotions: Array.isArray(e.emotions) ? e.emotions : undefined,
+          therapy: !!e.therapy,
+        }
+      })
+      setDiary(next)
+    }
+  }, [notes, listrecs, diary, setNotes, setListrecs, setDiary])
 
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
   const [openDiaryDate, setOpenDiaryDate] = useState<string | null>(null)
@@ -131,7 +176,7 @@ export default function RecordsView({
       ...notes.map((n): Item => ({
         kind: 'note', id: n.id,
         title: n.title || 'Без названия',
-        sub: n.body.split('\n')[0] || '—',
+        sub: n.body?.split('\n')[0] || '—',
         updated: n.updated,
         therapy: n.therapy,
       })),
@@ -144,7 +189,7 @@ export default function RecordsView({
       ...diaryDays.map((dk): Item => ({
         kind: 'diary', id: dk,
         title: `Дневник · ${diaryLabel(dk)}`,
-        sub: diary[dk].text.split('\n')[0] || diary[dk].emotion,
+        sub: diary[dk]?.text?.split('\n')[0] || diary[dk]?.emotion || '—',
         updated: diary[dk].updated || 0,
         therapy: diary[dk].therapy,
       })),
@@ -827,12 +872,12 @@ function ListRecCard({
           <Plus size={12} strokeWidth={2} />
         </button>
       </div>
-      {rec.items.length > 0 && (
+      {(rec.items?.length ?? 0) > 0 && (
         <div className="mt-2 pt-1" style={{ borderTop: '1px solid var(--line)' }}>
           {rec.items.slice(0, 5).map((it, idx) => itemRow(it, idx, () => onToggleItem(it.id)))}
-          {rec.items.length > 5 && (
+          {(rec.items?.length ?? 0) > 5 && (
             <p className="pt-1" style={{ fontSize: 11, color: 'var(--muted)' }}>
-              ещё {rec.items.length - 5}…
+              ещё {(rec.items?.length ?? 0) - 5}…
             </p>
           )}
         </div>
@@ -846,13 +891,13 @@ function ListRecCard({
                 {l.title || 'Подблок'}
               </span>
               <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
-                {done}/{l.items.length}
+                {done}/{(l.items?.length ?? 0)}
               </span>
             </div>
-            {l.items.slice(0, 4).map((it, idx) => itemRow(it, idx, () => onToggleListItem(l.id, it.id)))}
-            {l.items.length > 4 && (
+            {(l.items ?? []).slice(0, 4).map((it, idx) => itemRow(it, idx, () => onToggleListItem(l.id, it.id)))}
+            {(l.items?.length ?? 0) > 4 && (
               <p className="pt-1" style={{ fontSize: 11, color: 'var(--muted)' }}>
-                ещё {l.items.length - 4}…
+                ещё {(l.items?.length ?? 0) - 4}…
               </p>
             )}
           </div>
@@ -968,10 +1013,10 @@ function DiaryRow({
             {diaryLabel(dk)}
           </span>
           <span className="block truncate mt-0.5" style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            {diary[dk].text.split('\n')[0] || '—'}
+            {diary[dk]?.text?.split('\n')[0] || '—'}
           </span>
         </span>
-        {diary[dk].therapy && (
+        {diary[dk]?.therapy && (
           <span
             className="flex-none flex items-center gap-1 px-1.5 py-0.5 rounded-md"
             style={{ background: 'var(--surface-2)', fontSize: 10, color: 'var(--muted)' }}
@@ -981,7 +1026,7 @@ function DiaryRow({
         )}
       </span>
       <div className="flex flex-wrap items-center gap-1.5 mt-2">
-        <EmotionChips tags={diary[dk].emotions} onClick={onEditEmotion} />
+        <EmotionChips tags={diary[dk]?.emotions} onClick={onEditEmotion} />
         <button
           onClick={(e) => {
             e.stopPropagation()
