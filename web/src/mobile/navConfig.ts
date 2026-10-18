@@ -8,6 +8,7 @@ import {
   MessageCircle,
   Route,
   Settings,
+  StickyNote,
   TrendingUp,
   Users,
   type LucideIcon,
@@ -16,7 +17,7 @@ import {
 export type AppTabId = 'tools' | 'day' | 'chat' | 'session' | 'settings'
 
 export type MTab =
-  | 'chat'
+  | 'notes'
   | 'emotions'
   | 'therapy'
   | 'map'
@@ -47,7 +48,7 @@ export const TOOL_META: Record<
   MTab,
   { label: string; icon: LucideIcon }
 > = {
-  chat: { label: 'Чат', icon: MessageCircle },
+  notes: { label: 'Заметки', icon: StickyNote },
   emotions: { label: 'Эмоции', icon: Flower2 },
   therapy: { label: 'Терапия', icon: Heart },
   map: { label: 'Самооценка', icon: MapIcon },
@@ -78,6 +79,7 @@ export const DEFAULT_TABS: AppTab[] = [
           { id: 'progress', label: 'Прогресс' },
           { id: 'path', label: 'Путь' },
           { id: 'social', label: 'Социум' },
+          { id: 'notes', label: 'Заметки' },
         ],
       },
     ],

@@ -67,14 +67,11 @@ const recSub = (r: ListRecord) => {
 }
 
 export default function RecordsView({
-  folder,
-  onFolder,
   onHome,
 }: {
-  folder: FolderKey
-  onFolder: (f: FolderKey) => void
   onHome: () => void
 }) {
+  const [folder, setFolder] = useState<FolderKey>('all')
   const tk = todayKey()
   const [notes, setNotes] = useLS<Note[]>('aod4-notes', SEED_NOTES)
   const [folders] = useLS<Folder[]>('aod4-folders', SEED_FOLDERS)
@@ -158,7 +155,7 @@ export default function RecordsView({
     if (Math.abs(dx) < 60) return
     const idx = FOLDER_TABS.findIndex((t) => t.id === folder)
     const next = dx < 0 ? idx + 1 : idx - 1
-    if (next >= 0 && next < FOLDER_TABS.length) onFolder(FOLDER_TABS[next].id)
+    if (next >= 0 && next < FOLDER_TABS.length) setFolder(FOLDER_TABS[next].id)
   }
 
   // ─── действия ───
@@ -293,7 +290,7 @@ export default function RecordsView({
           return (
             <button
               key={t.id}
-              onClick={() => onFolder(t.id)}
+              onClick={() => setFolder(t.id)}
               className="flex-none flex items-center gap-1.5 px-4 py-2 rounded-full transition-colors"
               style={{
                 background: active ? 'var(--accent)' : 'transparent',
@@ -498,10 +495,10 @@ export default function RecordsView({
             }}
           >
             {([
-              ['Заметка', FileText, () => { onFolder('notes'); createNote() }],
+              ['Заметка', FileText, () => { setFolder('notes'); createNote() }],
               ['Чек-лист', ListChecks, () => createRec('checklist')],
               ['Список', ListOrdered, () => createRec('list')],
-              ['Запись в дневник', BookOpen, () => { onFolder('diary'); setOpenDiaryDate(tk) }],
+              ['Запись в дневник', BookOpen, () => { setFolder('diary'); setOpenDiaryDate(tk) }],
             ] as const).map(([label, Icon, fn]) => (
               <button
                 key={label}

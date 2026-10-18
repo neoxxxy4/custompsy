@@ -41,7 +41,7 @@ const TOOL_MODE_LABELS: Record<ToolMode, string> = {
   both: 'Работа + аналитика',
 }
 const DEFAULT_TOOL_CONFIGS: Record<MTab, ToolConfig> = {
-  chat: { mode: 'both' },
+  notes: { mode: 'both' },
   emotions: { mode: 'both' },
   therapy: { mode: 'both' },
   map: { mode: 'both' },

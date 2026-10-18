@@ -10,6 +10,7 @@ import TherapyView from './TherapyView'
 import SessionView from './SessionView'
 import ChatView from './ChatView'
 import SocialView from './SocialView'
+import RecordsView from './RecordsView'
 import TabShell from './TabShell'
 import { DEFAULT_TABS, useAppTabs, type MTab } from './navConfig'
 import type { ThemeId } from '@/lib/theme'
@@ -61,8 +62,8 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
 
   const renderTool = (id: MTab) => {
     switch (id) {
-      case 'chat':
-        return <ChatView />
+      case 'notes':
+        return <RecordsView onHome={() => setActiveTool(null)} />
       case 'therapy':
         return <TherapyView />
       case 'map':
