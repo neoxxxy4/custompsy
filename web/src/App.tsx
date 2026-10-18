@@ -2,8 +2,9 @@ import { useCallback, useEffect } from 'react';
 import MobileApp from '@/mobile/MobileApp';
 import { useLS } from '@/views/practice/store';
 import { applyTheme, asTheme, DEFAULT_THEME } from '@/lib/theme';
+import SyncProvider from '@/lib/SyncProvider';
 
-export default function App() {
+function ThemedApp() {
   const [themeRaw, setTheme] = useLS<string>('aod4-theme', DEFAULT_THEME);
   const theme = asTheme(themeRaw);
 
@@ -19,5 +20,13 @@ export default function App() {
     <div className="min-h-screen relative" style={{ background: 'var(--bg)' }}>
       <MobileApp theme={theme} onToggleTheme={toggleDayNight} />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <SyncProvider>
+      <ThemedApp />
+    </SyncProvider>
   );
 }

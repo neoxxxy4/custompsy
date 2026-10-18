@@ -17,10 +17,15 @@ export const readLS = <T,>(key: string, fallback: T): T => {
 // событие записи — чтобы статус-бары мгновенно пересчитывали микро-статусы
 export const LS_WRITE_EVENT = 'aod:ls-write'
 
+export type SyncStatus = 'idle' | 'syncing' | 'error'
+let syncStatus: SyncStatus = 'idle'
+export const getSyncStatus = () => syncStatus
+export const setSyncStatus = (s: SyncStatus) => { syncStatus = s }
+
 const writeLS = (key: string, v: unknown) => {
   try {
     localStorage.setItem(key, JSON.stringify(v))
-    queueMicrotask(() => window.dispatchEvent(new Event(LS_WRITE_EVENT)))
+    queueMicrotask(() => window.dispatchEvent(new CustomEvent(LS_WRITE_EVENT, { detail: { key } })))
   } catch {
     /* переполнение — не критично */
   }
