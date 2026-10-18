@@ -1,13 +1,13 @@
-import { Moon, MoreHorizontal, Plus, Sun, X } from 'lucide-react'
-import { useState } from 'react'
+import { Moon, MoreHorizontal, Plus, Save, Sun, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { ThemeId } from '@/lib/theme'
+import { saveAllToServer } from '../lib/sync'
 import { useLS } from '../views/practice/store'
 import {
   BOTTOM_TAB_META,
   DEFAULT_TABS,
   TOOL_META,
   validToolIds,
-  writeTabs,
   type AppTab,
   type AppTabId,
   type MTab,
@@ -70,10 +70,14 @@ export default function SettingsView({
   const [analytics, setAnalytics] = useLS<SessionAnalyticsTab[]>(SESSION_ANALYTICS_KEY, DEFAULT_SESSION_ANALYTICS)
   const [toolConfigs, setToolConfigs] = useLS<Record<MTab, ToolConfig>>(TOOL_CONFIG_KEY, DEFAULT_TOOL_CONFIGS)
   const [toolSheet, setToolSheet] = useState<MTab | null>(null)
+  const [isDirty, setIsDirty] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  const markDirty = () => setIsDirty(true)
 
   const updateTabs = (next: AppTab[]) => {
     setTabs(next)
-    writeTabs(next)
+    markDirty()
   }
 
   const updateTab = (id: AppTabId, patch: Partial<AppTab>) => {
@@ -132,19 +136,23 @@ export default function SettingsView({
       next.splice(to, 0, moved)
       return next
     })
+    markDirty()
   }
 
   const removeAnalytics = (id: SessionAnalyticsTab) => {
     setAnalytics((prev) => prev.filter((x) => x !== id))
+    markDirty()
   }
 
   const addAnalytics = (id: SessionAnalyticsTab) => {
     if (analytics.includes(id)) return
     setAnalytics((prev) => [...prev, id])
+    markDirty()
   }
 
   const updateToolConfig = (id: MTab, patch: Partial<ToolConfig>) => {
     setToolConfigs((prev) => ({ ...prev, [id]: { ...(prev[id] ?? DEFAULT_TOOL_CONFIGS[id]), ...patch } }))
+    markDirty()
   }
 
   const moveBottomTab = (from: number, to: number) => {
@@ -168,6 +176,30 @@ export default function SettingsView({
     updateTabs([...tabs, { id, label: meta.label, icon: meta.icon, folders: base?.folders ?? [] }])
   }
 
+  const saveAll = async () => {
+    setSaveStatus('saving')
+    try {
+      await saveAllToServer()
+      setSaveStatus('saved')
+      setIsDirty(false)
+      setTimeout(() => setSaveStatus('idle'), 2000)
+    } catch (e) {
+      setSaveStatus('error')
+      alert('Ошибка сохранения: ' + String(e))
+    }
+  }
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [isDirty])
+
   const bottomTabDrag = useDragList({
     disabled: false,
     onReorder: moveBottomTab,
@@ -190,11 +222,30 @@ export default function SettingsView({
 
   const currentTab = tabs.find((t) => t.id === editTab) ?? DEFAULT_TABS.find((t) => t.id === editTab)
 
+  const saveLabel = saveStatus === 'saving' ? 'Сохранение...' : saveStatus === 'saved' ? 'Сохранено' : saveStatus === 'error' ? 'Ошибка' : isDirty ? 'Сохранить' : 'Сохранено'
+
   return (
     <div className="px-4 pt-5 pb-28 min-h-screen">
-      <h1 style={{ fontFamily: 'var(--font-body)', fontSize: 28, fontWeight: 700, color: 'var(--light)' }}>
-        Настройки
-      </h1>
+      <div className="flex items-center justify-between">
+        <h1 style={{ fontFamily: 'var(--font-body)', fontSize: 28, fontWeight: 700, color: 'var(--light)' }}>
+          Настройки
+        </h1>
+        <button
+          onClick={saveAll}
+          disabled={!isDirty && saveStatus !== 'error'}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl"
+          style={{
+            background: isDirty || saveStatus === 'error' ? 'var(--accent)' : 'var(--surface-2)',
+            color: isDirty || saveStatus === 'error' ? 'var(--on-fill)' : 'var(--muted)',
+            fontSize: 13,
+            fontWeight: 600,
+            border: '1px solid var(--line)',
+          }}
+        >
+          <Save size={14} strokeWidth={2} />
+          {saveLabel}
+        </button>
+      </div>
 
       <div className="mt-6 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
         <button onClick={onToggleTheme} className="w-full flex items-center justify-between">

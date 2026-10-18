@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { LS_WRITE_EVENT, setSyncStatus } from './sync'
+import { API_BASE, LS_WRITE_EVENT, setSyncStatus } from './sync'
 
-const API_BASE = '/api'
 const SYNC_DEBOUNCE_MS = 1000
 
 interface SyncCtx {

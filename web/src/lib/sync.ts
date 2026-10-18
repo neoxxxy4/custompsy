@@ -22,6 +22,8 @@ let syncStatus: SyncStatus = 'idle'
 export const getSyncStatus = () => syncStatus
 export const setSyncStatus = (s: SyncStatus) => { syncStatus = s }
 
+export const API_BASE = '/api'
+
 export const writeLS = (key: string, v: unknown) => {
   try {
     localStorage.setItem(key, JSON.stringify(v))
@@ -29,6 +31,26 @@ export const writeLS = (key: string, v: unknown) => {
   } catch {
     /* переполнение — не критично */
   }
+}
+
+export async function saveAllToServer(): Promise<void> {
+  const state: Record<string, unknown> = {}
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (!key || !key.startsWith('aod4-')) continue
+    try {
+      const raw = localStorage.getItem(key)
+      if (raw !== null) state[key] = JSON.parse(raw)
+    } catch {
+      /* ignore */
+    }
+  }
+  const r = await fetch(`${API_BASE}/sync`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state }),
+  })
+  if (!r.ok) throw new Error(`sync save ${r.status}`)
 }
 
 // тик, который растёт при любой записи через useSyncedLS + раз в intervalMs
