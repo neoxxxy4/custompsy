@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BookOpen,
   FileText,
@@ -77,6 +77,18 @@ export default function RecordsView({
   const [folders] = useLS<Folder[]>('aod4-folders', SEED_FOLDERS)
   const [listrecs, setListrecs] = useLS<ListRecord[]>('aod4-listrecs', [])
   const [diary, setDiary] = useLS<Diary>('aod4-diary', {})
+
+  useEffect(() => {
+    const needsFix = notes.some((n) => typeof n.body !== 'string' || typeof n.title !== 'string')
+    if (!needsFix) return
+    setNotes(
+      notes.map((n) => ({
+        ...n,
+        title: typeof n.title === 'string' ? n.title : '',
+        body: typeof n.body === 'string' ? n.body : (n as unknown as { text?: string }).text || '',
+      })),
+    )
+  }, [notes, setNotes])
 
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
   const [openDiaryDate, setOpenDiaryDate] = useState<string | null>(null)
