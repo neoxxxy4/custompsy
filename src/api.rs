@@ -18,6 +18,8 @@ pub fn router(db: Db) -> Router {
     Router::new()
         .route("/checks/{date}", get(get_checks).put(put_checks))
         .route("/balance", get(get_balance).put(put_balance))
+        .route("/sync", get(get_sync).put(put_sync))
+        .route("/sync/{key}", get(get_sync_key).put(put_sync_key))
         .with_state(db)
 }
 
@@ -136,4 +138,78 @@ async fn put_balance(
     )?;
 
     Ok(Json(state))
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SyncState {
+    pub state: std::collections::HashMap<String, serde_json::Value>,
+}
+
+async fn get_sync(State(db): State<Db>) -> Result<Json<SyncState>, ApiError> {
+    let conn = db.lock().unwrap();
+    let mut stmt = conn.prepare("SELECT key, value FROM sync_state")?;
+    let state: std::collections::HashMap<String, serde_json::Value> = stmt
+        .query_map([], |r| {
+            let key: String = r.get(0)?;
+            let value: String = r.get(1)?;
+            let parsed: serde_json::Value = serde_json::from_str(&value).unwrap_or(serde_json::Value::Null);
+            Ok((key, parsed))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(Json(SyncState { state }))
+}
+
+async fn put_sync(
+    State(db): State<Db>,
+    Json(payload): Json<SyncState>,
+) -> Result<Json<SyncState>, ApiError> {
+    let conn = db.lock().unwrap();
+    let tx = conn.unchecked_transaction()?;
+    let mut stmt = tx.prepare(
+        "INSERT INTO sync_state (key, value, updated_at) VALUES (?1, ?2, unixepoch())
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    )?;
+    for (key, value) in &payload.state {
+        let json = serde_json::to_string(value)?;
+        stmt.execute(rusqlite::params![key, json])?;
+    }
+    drop(stmt);
+    tx.commit()?;
+    Ok(Json(payload))
+}
+
+async fn get_sync_key(
+    State(db): State<Db>,
+    Path(key): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let conn = db.lock().unwrap();
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM sync_state WHERE key = ?1",
+            [&key],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match value {
+        Some(v) => {
+            let parsed: serde_json::Value = serde_json::from_str(&v)?;
+            Ok(Json(parsed))
+        }
+        None => Ok(Json(serde_json::Value::Null)),
+    }
+}
+
+async fn put_sync_key(
+    State(db): State<Db>,
+    Path(key): Path<String>,
+    Json(value): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let conn = db.lock().unwrap();
+    let json = serde_json::to_string(&value)?;
+    conn.execute(
+        "INSERT INTO sync_state (key, value, updated_at) VALUES (?1, ?2, unixepoch())
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        [&key, &json],
+    )?;
+    Ok(Json(value))
 }
