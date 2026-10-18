@@ -125,9 +125,11 @@ export function readTabs(): AppTab[] {
     if (!s) return DEFAULT_TABS
     const parsed = JSON.parse(s) as AppTab[]
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_TABS
+
     const filtered = parsed.filter((tab) => validAppTabIds.has(tab.id))
     if (filtered.length === 0) return DEFAULT_TABS
-    return filtered.map((tab) => {
+
+    const merged = filtered.map((tab) => {
       const meta = BOTTOM_TAB_META[tab.id]
       const base = DEFAULT_TABS.find((t) => t.id === tab.id)
       let folders = (tab.folders ?? []).map((folder) => ({
@@ -141,6 +143,12 @@ export function readTabs(): AppTab[] {
       }
       return { ...tab, label: meta.label, icon: meta.icon, folders }
     })
+
+    const present = new Set(merged.map((t) => t.id))
+    const missing = DEFAULT_TABS.filter((t) => !present.has(t.id) && merged.length < 5)
+    const result = [...merged, ...missing]
+
+    return result.length >= 3 ? result : DEFAULT_TABS
   } catch {
     return DEFAULT_TABS
   }
