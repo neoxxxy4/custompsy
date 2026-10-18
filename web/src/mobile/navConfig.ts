@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { writeLS } from '../lib/sync'
 import {
   Flower2,
   Heart,
@@ -155,11 +156,7 @@ export function readTabs(): AppTab[] {
 }
 
 export function writeTabs(tabs: AppTab[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs))
-  } catch {
-    /* ignore */
-  }
+  writeLS(STORAGE_KEY, tabs)
 }
 
 export function useAppTabs(): [AppTab[], (t: AppTab[] | ((prev: AppTab[]) => AppTab[])) => void] {

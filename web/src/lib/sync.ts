@@ -22,7 +22,7 @@ let syncStatus: SyncStatus = 'idle'
 export const getSyncStatus = () => syncStatus
 export const setSyncStatus = (s: SyncStatus) => { syncStatus = s }
 
-const writeLS = (key: string, v: unknown) => {
+export const writeLS = (key: string, v: unknown) => {
   try {
     localStorage.setItem(key, JSON.stringify(v))
     queueMicrotask(() => window.dispatchEvent(new CustomEvent(LS_WRITE_EVENT, { detail: { key } })))
