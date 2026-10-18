@@ -1,19 +1,31 @@
 mod api;
 mod db;
 mod models;
+mod ws;
 
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use tower_http::services::{ServeDir, ServeFile};
 
+#[derive(Clone)]
+pub struct AppState {
+    pub db: api::Db,
+    pub clients: ws::WsClients,
+}
+
 #[tokio::main]
 async fn main() {
     let conn = db::open().expect("failed to open database");
-    let state: api::Db = Arc::new(Mutex::new(conn));
+    let state = AppState {
+        db: Arc::new(Mutex::new(conn)),
+        clients: Arc::new(Mutex::new(Vec::new())),
+    };
 
     let app = Router::new()
-        .nest("/api", api::router(state))
+        .nest("/api", api::router())
+        .route("/api/ws", axum::routing::get(ws::ws_handler))
+        .with_state(state)
         .fallback_service(
             ServeDir::new("web/dist").fallback(ServeFile::new("web/dist/index.html")),
         );

@@ -11,16 +11,16 @@ use axum::{
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::models::{BalanceState, ChecksState, ChecksUpdate};
+use crate::AppState;
 
 pub type Db = Arc<Mutex<Connection>>;
 
-pub fn router(db: Db) -> Router {
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/checks/{date}", get(get_checks).put(put_checks))
         .route("/balance", get(get_balance).put(put_balance))
         .route("/sync", get(get_sync).put(put_sync))
         .route("/sync/{key}", get(get_sync_key).put(put_sync_key))
-        .with_state(db)
 }
 
 pub struct ApiError(StatusCode, String);
@@ -57,12 +57,13 @@ fn valid_date(date: &str) -> bool {
 }
 
 async fn get_checks(
-    State(db): State<Db>,
+    State(state): State<AppState>,
     Path(date): Path<String>,
 ) -> Result<Json<ChecksState>, ApiError> {
     if !valid_date(&date) {
         return Err(bad_request("date must be YYYY-MM-DD"));
     }
+    let db = &state.db;
     let conn = db.lock().unwrap();
 
     let mut stmt = conn.prepare("SELECT key, done FROM checks WHERE date = ?1")?;
@@ -77,13 +78,14 @@ async fn get_checks(
 }
 
 async fn put_checks(
-    State(db): State<Db>,
+    State(state): State<AppState>,
     Path(date): Path<String>,
     Json(update): Json<ChecksUpdate>,
 ) -> Result<Json<ChecksState>, ApiError> {
     if !valid_date(&date) {
         return Err(bad_request("date must be YYYY-MM-DD"));
     }
+    let db = &state.db;
     let conn = db.lock().unwrap();
 
     let tx = conn.unchecked_transaction()?;
@@ -105,7 +107,8 @@ async fn put_checks(
     }))
 }
 
-async fn get_balance(State(db): State<Db>) -> Result<Json<BalanceState>, ApiError> {
+async fn get_balance(State(state): State<AppState>) -> Result<Json<BalanceState>, ApiError> {
+    let db = &state.db;
     let conn = db.lock().unwrap();
 
     let json: Option<String> = conn
@@ -122,22 +125,23 @@ async fn get_balance(State(db): State<Db>) -> Result<Json<BalanceState>, ApiErro
 }
 
 async fn put_balance(
-    State(db): State<Db>,
-    Json(state): Json<BalanceState>,
+    State(state): State<AppState>,
+    Json(payload): Json<BalanceState>,
 ) -> Result<Json<BalanceState>, ApiError> {
-    if state.values.len() != 6 || state.values.iter().any(|v| !(0..=10).contains(v)) {
+    if payload.values.len() != 6 || payload.values.iter().any(|v| !(0..=10).contains(v)) {
         return Err(bad_request("values must be 6 integers in 0..=10"));
     }
+    let db = &state.db;
     let conn = db.lock().unwrap();
 
-    let json = serde_json::to_string(&state)?;
+    let json = serde_json::to_string(&payload)?;
     conn.execute(
         "INSERT INTO balance (id, values_json) VALUES (1, ?1)
          ON CONFLICT(id) DO UPDATE SET values_json = excluded.values_json",
         [json],
     )?;
 
-    Ok(Json(state))
+    Ok(Json(payload))
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -145,7 +149,8 @@ pub struct SyncState {
     pub state: std::collections::HashMap<String, serde_json::Value>,
 }
 
-async fn get_sync(State(db): State<Db>) -> Result<Json<SyncState>, ApiError> {
+async fn get_sync(State(state): State<AppState>) -> Result<Json<SyncState>, ApiError> {
+    let db = &state.db;
     let conn = db.lock().unwrap();
     let mut stmt = conn.prepare("SELECT key, value FROM sync_state")?;
     let state: std::collections::HashMap<String, serde_json::Value> = stmt
@@ -160,9 +165,10 @@ async fn get_sync(State(db): State<Db>) -> Result<Json<SyncState>, ApiError> {
 }
 
 async fn put_sync(
-    State(db): State<Db>,
+    State(state): State<AppState>,
     Json(payload): Json<SyncState>,
 ) -> Result<Json<SyncState>, ApiError> {
+    let db = &state.db;
     let conn = db.lock().unwrap();
     let tx = conn.unchecked_transaction()?;
     let mut stmt = tx.prepare(
@@ -179,9 +185,10 @@ async fn put_sync(
 }
 
 async fn get_sync_key(
-    State(db): State<Db>,
+    State(state): State<AppState>,
     Path(key): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let db = &state.db;
     let conn = db.lock().unwrap();
     let value: Option<String> = conn
         .query_row(
@@ -200,10 +207,11 @@ async fn get_sync_key(
 }
 
 async fn put_sync_key(
-    State(db): State<Db>,
+    State(state): State<AppState>,
     Path(key): Path<String>,
     Json(value): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let db = &state.db;
     let conn = db.lock().unwrap();
     let json = serde_json::to_string(&value)?;
     conn.execute(

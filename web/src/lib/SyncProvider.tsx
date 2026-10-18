@@ -1,61 +1,58 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { API_BASE, LS_WRITE_EVENT, setSyncStatus } from './sync'
 
-const SYNC_DEBOUNCE_MS = 1000
+const WS_URL = (() => {
+  if (typeof window === 'undefined') return ''
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${proto}//${window.location.host}${API_BASE}/ws`
+})()
+
+const SYNC_DEBOUNCE_MS = 300
 
 interface SyncCtx {
   lastSyncAt: Date | null
   error: string | null
+  connected: boolean
 }
 
-const SyncContext = createContext<SyncCtx>({ lastSyncAt: null, error: null })
+const SyncContext = createContext<SyncCtx>({ lastSyncAt: null, error: null, connected: false })
 
 export const useSync = () => useContext(SyncContext)
 
 const isSyncKey = (key: string) => key.startsWith('aod4-')
 
+interface WsMsg {
+  type: 'sync' | 'pong'
+  state?: Record<string, unknown>
+}
+
 export default function SyncProvider({ children }: { children: React.ReactNode }) {
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [connected, setConnected] = useState(false)
   const isHydrating = useRef(true)
   const pending = useRef<Set<string>>(new Set())
   const timer = useRef<number | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)
+  const ignoreKeys = useRef<Set<string>>(new Set())
 
-  // 1. При старте загружаем состояние с сервера в localStorage
-  useEffect(() => {
-    let cancelled = false
-    setSyncStatus('syncing')
-    fetch(`${API_BASE}/sync`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`sync load ${r.status}`))))
-      .then((data: { state: Record<string, unknown> }) => {
-        if (cancelled) return
-        try {
-          Object.entries(data.state ?? {}).forEach(([key, value]) => {
-            if (isSyncKey(key)) {
-              localStorage.setItem(key, JSON.stringify(value))
-            }
-          })
-          setLastSyncAt(new Date())
-          setError(null)
-        } catch {
-          /* ignore */
+  const applyServerState = (state: Record<string, unknown>) => {
+    try {
+      Object.entries(state).forEach(([key, value]) => {
+        if (isSyncKey(key)) {
+          ignoreKeys.current.add(key)
+          localStorage.setItem(key, JSON.stringify(value))
         }
       })
-      .catch((e) => {
-        if (!cancelled) setError(String(e))
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setSyncStatus('idle')
-          isHydrating.current = false
-          window.dispatchEvent(new Event('aod:sync-hydrated'))
-        }
-      })
-    return () => { cancelled = true }
-  }, [])
+      window.dispatchEvent(new Event('aod:sync-hydrated'))
+    } catch {
+      /* ignore */
+    }
+  }
 
-  // 2. Отправляем изменения на сервер
-  const flush = async () => {
+  const sendPending = () => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
     const keys = Array.from(pending.current)
     if (keys.length === 0) return
     pending.current.clear()
@@ -70,32 +67,85 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
       }
     }
 
+    if (Object.keys(state).length === 0) return
+    for (const key of Object.keys(state)) ignoreKeys.current.add(key)
     setSyncStatus('syncing')
-    try {
-      const r = await fetch(`${API_BASE}/sync`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state }),
-      })
-      if (!r.ok) throw new Error(`sync save ${r.status}`)
-      setLastSyncAt(new Date())
-      setError(null)
-    } catch (e) {
-      setError(String(e))
-      keys.forEach((k) => pending.current.add(k))
-    } finally {
-      setSyncStatus('idle')
-    }
+    ws.send(JSON.stringify({ type: 'sync', state }))
   }
+
+  useEffect(() => {
+    let reconnectTimer: number | null = null
+    let pingTimer: number | null = null
+    let closeIntentional = false
+
+    const connect = () => {
+      if (!WS_URL) return
+      if (wsRef.current?.readyState === WebSocket.OPEN) return
+      try {
+        const ws = new WebSocket(WS_URL)
+        wsRef.current = ws
+
+        ws.onopen = () => {
+          setConnected(true)
+          setError(null)
+          pingTimer = window.setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }))
+          }, 30000)
+        }
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data) as WsMsg
+            if (msg.type === 'sync' && msg.state) {
+              applyServerState(msg.state)
+              setLastSyncAt(new Date())
+              setError(null)
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
+        ws.onerror = () => {
+          setError('ws error')
+        }
+
+        ws.onclose = () => {
+          setConnected(false)
+          if (pingTimer) window.clearInterval(pingTimer)
+          if (!closeIntentional) {
+            reconnectTimer = window.setTimeout(connect, 3000)
+          }
+        }
+      } catch {
+        setError('ws connect failed')
+      }
+    }
+
+    connect()
+
+    return () => {
+      closeIntentional = true
+      if (reconnectTimer) window.clearTimeout(reconnectTimer)
+      if (pingTimer) window.clearInterval(pingTimer)
+      wsRef.current?.close()
+    }
+  }, [])
 
   useEffect(() => {
     const onWrite = (e: Event) => {
       if (isHydrating.current) return
       const key = (e as CustomEvent<{ key: string }>).detail?.key
       if (!key || !isSyncKey(key)) return
+      if (ignoreKeys.current.has(key)) {
+        ignoreKeys.current.delete(key)
+        return
+      }
       pending.current.add(key)
       if (timer.current) window.clearTimeout(timer.current)
-      timer.current = window.setTimeout(() => { void flush() }, SYNC_DEBOUNCE_MS)
+      timer.current = window.setTimeout(() => {
+        sendPending()
+      }, SYNC_DEBOUNCE_MS)
     }
 
     window.addEventListener(LS_WRITE_EVENT, onWrite)
@@ -105,16 +155,15 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     }
   }, [])
 
-  // 3. Раз в 30 секунд пытаемся отправить накопившиеся изменения
   useEffect(() => {
     const interval = window.setInterval(() => {
-      if (pending.current.size > 0) void flush()
-    }, 30000)
+      if (pending.current.size > 0) sendPending()
+    }, 1000)
     return () => window.clearInterval(interval)
   }, [])
 
   return (
-    <SyncContext.Provider value={{ lastSyncAt, error }}>
+    <SyncContext.Provider value={{ lastSyncAt, error, connected }}>
       {children}
     </SyncContext.Provider>
   )
