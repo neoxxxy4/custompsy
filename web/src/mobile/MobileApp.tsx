@@ -11,6 +11,7 @@ import SessionView from './SessionView'
 import ChatView from './ChatView'
 import SocialView from './SocialView'
 import RecordsView from './RecordsView'
+import DashboardView from './DashboardView'
 import TabShell from './TabShell'
 import { DEFAULT_TABS, useAppTabs, type MTab } from './navConfig'
 import type { ThemeId } from '@/lib/theme'
@@ -98,6 +99,8 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
           onFolder={(id: string) => setActiveFolder((prev) => ({ ...prev, [tab]: id }))}
           onTool={openTool}
         />
+      ) : tab === 'dashboard' ? (
+        <DashboardView />
       ) : tab === 'day' ? (
         <TodayView />
       ) : tab === 'chat' ? (
@@ -108,7 +111,7 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         <SettingsView theme={theme} onToggleTheme={onToggleTheme} tabs={tabs} setTabs={setTabs} />
       ) : null}
 
-      <MobileBottomNav tab={tab} onTab={switchTab} />
+      <MobileBottomNav tabs={tabs} tab={tab} onTab={switchTab} />
     </div>
   )
 }

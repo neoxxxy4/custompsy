@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { ThemeId } from '@/lib/theme'
 import { useLS } from '../views/practice/store'
 import {
+  BOTTOM_TAB_META,
   DEFAULT_TABS,
   TOOL_META,
   validToolIds,
@@ -146,6 +147,37 @@ export default function SettingsView({
     setToolConfigs((prev) => ({ ...prev, [id]: { ...(prev[id] ?? DEFAULT_TOOL_CONFIGS[id]), ...patch } }))
   }
 
+  const moveBottomTab = (from: number, to: number) => {
+    if (from === to) return
+    const next = [...tabs]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    updateTabs(next)
+  }
+
+  const removeBottomTab = (id: AppTabId) => {
+    if (tabs.length <= 3) return
+    updateTabs(tabs.filter((t) => t.id !== id))
+  }
+
+  const addBottomTab = (id: AppTabId) => {
+    if (tabs.length >= 5) return
+    if (tabs.some((t) => t.id === id)) return
+    const meta = BOTTOM_TAB_META[id]
+    const base = DEFAULT_TABS.find((t) => t.id === id)
+    updateTabs([...tabs, { id, label: meta.label, icon: meta.icon, folders: base?.folders ?? [] }])
+  }
+
+  const bottomTabDrag = useDragList({
+    disabled: false,
+    onReorder: moveBottomTab,
+    onLongPress: () => {},
+  })
+
+  const availableBottomTabs = (Object.keys(BOTTOM_TAB_META) as AppTabId[]).filter(
+    (id) => !tabs.some((t) => t.id === id)
+  )
+
   const analyticsDrag = useDragList({
     disabled: false,
     onReorder: moveAnalytics,
@@ -176,6 +208,60 @@ export default function SettingsView({
           </span>
         </button>
       </div>
+
+      <section className="mt-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--light)' }}>Нижние вкладки</h2>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>{tabs.length}/5</span>
+        </div>
+        <p className="mb-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
+          Порядок и состав нижней панели. Минимум 3, максимум 5.
+        </p>
+        <div
+          {...bottomTabDrag.containerProps}
+          className="rounded-2xl p-3 space-y-2"
+          style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+        >
+          {tabs.map((t, idx) => {
+            const Icon = t.icon
+            return (
+              <div
+                key={t.id}
+                {...bottomTabDrag.bindRow(idx)}
+                className="flex items-center justify-between rounded-xl px-3 py-2"
+                style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', ...bottomTabDrag.rowStyle(idx) }}
+              >
+                <span className="flex items-center gap-2" style={{ fontSize: 14, color: 'var(--light)' }}>
+                  <Icon size={14} strokeWidth={1.8} style={{ color: 'var(--muted)' }} />
+                  {t.label}
+                </span>
+                <button
+                  onClick={() => removeBottomTab(t.id)}
+                  disabled={tabs.length <= 3}
+                  className="p-1"
+                  style={{ color: tabs.length <= 3 ? 'var(--line-strong)' : 'var(--muted)' }}
+                >
+                  <X size={14} strokeWidth={1.8} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+        {availableBottomTabs.length > 0 && tabs.length < 5 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {availableBottomTabs.map((id) => (
+              <button
+                key={id}
+                onClick={() => addBottomTab(id)}
+                className="px-2 py-1 rounded-lg"
+                style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', fontSize: 11, color: 'var(--muted)' }}
+              >
+                + {BOTTOM_TAB_META[id].label}
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="mt-6">
         <h2 style={{ fontSize: 15, fontWeight: 600, color: 'var(--light)' }}>Аналитика сессии</h2>

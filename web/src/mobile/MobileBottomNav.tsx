@@ -1,12 +1,13 @@
-import type { AppTabId } from './navConfig'
-import { DEFAULT_TABS } from './navConfig'
+import type { AppTab, AppTabId } from './navConfig'
 
 export type { AppTabId } from './navConfig'
 
 export default function MobileBottomNav({
+  tabs,
   tab,
   onTab,
 }: {
+  tabs: AppTab[]
   tab: AppTabId
   onTab: (t: AppTabId) => void
 }) {
@@ -20,7 +21,7 @@ export default function MobileBottomNav({
         touchAction: 'pan-y',
       }}
     >
-      {DEFAULT_TABS.map((t) => {
+      {tabs.map((t) => {
         const active = tab === t.id
         const Icon = t.icon
         return (

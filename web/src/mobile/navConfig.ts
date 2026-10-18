@@ -3,6 +3,7 @@ import {
   Flower2,
   Heart,
   Home,
+  LayoutDashboard,
   LayoutGrid,
   Map as MapIcon,
   MessageCircle,
@@ -14,7 +15,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-export type AppTabId = 'tools' | 'day' | 'chat' | 'session' | 'settings'
+export type AppTabId = 'tools' | 'day' | 'chat' | 'session' | 'settings' | 'dashboard'
 
 export type MTab =
   | 'notes'
@@ -57,11 +58,20 @@ export const TOOL_META: Record<
   social: { label: 'Социум', icon: Users },
 }
 
+export const BOTTOM_TAB_META: Record<AppTabId, { label: string; icon: LucideIcon }> = {
+  dashboard: { label: 'Дашборд', icon: LayoutDashboard },
+  day: { label: 'День', icon: Home },
+  tools: { label: 'Инструменты', icon: LayoutGrid },
+  chat: { label: 'Чат', icon: MessageCircle },
+  session: { label: 'Сессия', icon: MessageCircle },
+  settings: { label: 'Настройки', icon: Settings },
+}
+
 export const DEFAULT_TABS: AppTab[] = [
   {
-    id: 'day',
-    label: 'День',
-    icon: Home,
+    id: 'dashboard',
+    label: 'Дашборд',
+    icon: LayoutDashboard,
     folders: [],
   },
   {
@@ -85,9 +95,9 @@ export const DEFAULT_TABS: AppTab[] = [
     ],
   },
   {
-    id: 'chat',
-    label: 'Чат',
-    icon: MessageCircle,
+    id: 'day',
+    label: 'День',
+    icon: Home,
     folders: [],
   },
   {
@@ -107,6 +117,7 @@ export const DEFAULT_TABS: AppTab[] = [
 const STORAGE_KEY = 'aod4-app-tabs'
 
 export const validToolIds = new Set<MTab>(Object.keys(TOOL_META) as MTab[])
+export const validAppTabIds = new Set<AppTabId>(Object.keys(BOTTOM_TAB_META) as AppTabId[])
 
 export function readTabs(): AppTab[] {
   try {
@@ -114,7 +125,10 @@ export function readTabs(): AppTab[] {
     if (!s) return DEFAULT_TABS
     const parsed = JSON.parse(s) as AppTab[]
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_TABS
-    return parsed.map((tab) => {
+    const filtered = parsed.filter((tab) => validAppTabIds.has(tab.id))
+    if (filtered.length === 0) return DEFAULT_TABS
+    return filtered.map((tab) => {
+      const meta = BOTTOM_TAB_META[tab.id]
       const base = DEFAULT_TABS.find((t) => t.id === tab.id)
       let folders = (tab.folders ?? []).map((folder) => ({
         ...folder,
@@ -125,7 +139,7 @@ export function readTabs(): AppTab[] {
         const missing = base.folders.filter((f) => !existingIds.has(f.id))
         folders = [...missing, ...folders]
       }
-      return { ...tab, folders }
+      return { ...tab, label: meta.label, icon: meta.icon, folders }
     })
   } catch {
     return DEFAULT_TABS
