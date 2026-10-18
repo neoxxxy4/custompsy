@@ -53,13 +53,19 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         globalThis.window.scrollTo({ top: 0 })
       }
     }
+    const onSwitchTab = (e: Event) => {
+      const id = (e as CustomEvent<{ tab: AppTabId }>).detail?.tab
+      if (id) switchTab(id)
+    }
     globalThis.window.addEventListener('popstate', onPopState)
     document.addEventListener('backbutton', onBackButton)
+    globalThis.window.addEventListener('aod:switch-tab', onSwitchTab)
     return () => {
       globalThis.window.removeEventListener('popstate', onPopState)
       document.removeEventListener('backbutton', onBackButton)
+      globalThis.window.removeEventListener('aod:switch-tab', onSwitchTab)
     }
-  }, [activeTool])
+  }, [activeTool, switchTab])
 
   const renderTool = (id: MTab) => {
     switch (id) {
