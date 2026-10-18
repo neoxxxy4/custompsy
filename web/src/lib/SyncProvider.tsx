@@ -73,6 +73,22 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     ws.send(JSON.stringify({ type: 'sync', state }))
   }
 
+  // Fallback polling через REST — на случай если WebSocket не работает
+  useEffect(() => {
+    let interval = window.setInterval(() => {
+      fetch(`${API_BASE}/sync`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.state && Object.keys(data.state).length > 0) {
+            applyServerState(data.state)
+            setLastSyncAt(new Date())
+          }
+        })
+        .catch(() => {})
+    }, 2000)
+    return () => window.clearInterval(interval)
+  }, [])
+
   useEffect(() => {
     let reconnectTimer: number | null = null
     let pingTimer: number | null = null
@@ -81,11 +97,13 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     const connect = () => {
       if (!WS_URL) return
       if (wsRef.current?.readyState === WebSocket.OPEN) return
+      console.log('[WS] connecting to', WS_URL)
       try {
         const ws = new WebSocket(WS_URL)
         wsRef.current = ws
 
         ws.onopen = () => {
+          console.log('[WS] open')
           setConnected(true)
           setError(null)
           pingTimer = window.setInterval(() => {
@@ -94,6 +112,7 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
         }
 
         ws.onmessage = (event) => {
+          console.log('[WS] message', event.data)
           try {
             const msg = JSON.parse(event.data) as WsMsg
             if (msg.type === 'sync' && msg.state) {
@@ -106,18 +125,21 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
           }
         }
 
-        ws.onerror = () => {
+        ws.onerror = (e) => {
+          console.error('[WS] error', e)
           setError('ws error')
         }
 
-        ws.onclose = () => {
+        ws.onclose = (e) => {
+          console.log('[WS] close', e.code, e.reason)
           setConnected(false)
           if (pingTimer) window.clearInterval(pingTimer)
           if (!closeIntentional) {
             reconnectTimer = window.setTimeout(connect, 3000)
           }
         }
-      } catch {
+      } catch (e) {
+        console.error('[WS] connect failed', e)
         setError('ws connect failed')
       }
     }
@@ -165,6 +187,34 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   return (
     <SyncContext.Provider value={{ lastSyncAt, error, connected }}>
       {children}
+      <div
+        style={{
+          position: 'fixed',
+          top: 8,
+          right: 8,
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '4px 8px',
+          borderRadius: 12,
+          background: 'rgba(0,0,0,0.7)',
+          color: '#fff',
+          fontSize: 11,
+          fontFamily: 'monospace',
+          pointerEvents: 'none',
+        }}
+      >
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: connected ? '#22c55e' : error ? '#ef4444' : '#eab308',
+          }}
+        />
+        <span>{connected ? 'online' : error ? 'err' : 'off'}</span>
+      </div>
     </SyncContext.Provider>
   )
 }

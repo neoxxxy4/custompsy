@@ -23,8 +23,8 @@ async fn main() {
     };
 
     let app = Router::new()
-        .nest("/api", api::router())
         .route("/api/ws", axum::routing::get(ws::ws_handler))
+        .nest("/api", api::router())
         .with_state(state)
         .fallback_service(
             ServeDir::new("web/dist").fallback(ServeFile::new("web/dist/index.html")),
