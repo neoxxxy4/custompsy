@@ -24,26 +24,42 @@ export const setSyncStatus = (s: SyncStatus) => { syncStatus = s }
 
 export const API_BASE = '/api'
 
-// одноразовая миграция: распаковываем оставшиеся {v,t}-обёртки в localStorage
-const MIGRATION_KEY = 'aod4-migrated-unwrap-v1'
+// если обнаруживаем битые wrapped-значения в localStorage — очищаем всё и
+// подтягиваем свежие данные с сервера, чтобы не было чёрного экрана
+const STORAGE_RESET_KEY = 'aod4-storage-reset-v5'
 export function runStorageMigration() {
   try {
-    if (localStorage.getItem(MIGRATION_KEY)) return
-    for (let i = localStorage.length - 1; i >= 0; i--) {
+    if (localStorage.getItem(STORAGE_RESET_KEY)) return
+
+    let hasWrapped = false
+    for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (!key || !key.startsWith('aod4-') || key === MIGRATION_KEY) continue
+      if (!key || !key.startsWith('aod4-')) continue
       const raw = localStorage.getItem(key)
       if (!raw) continue
       try {
         const parsed = JSON.parse(raw)
         if (parsed && typeof parsed === 'object' && 'v' in parsed && 't' in parsed) {
-          localStorage.setItem(key, JSON.stringify(parsed.v))
+          hasWrapped = true
+          break
         }
       } catch {
-        /* ignore */
+        // не JSON — тоже считаем битым
+        hasWrapped = true
+        break
       }
     }
-    localStorage.setItem(MIGRATION_KEY, '1')
+
+    if (hasWrapped) {
+      const keys: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && key.startsWith('aod4-') && key !== STORAGE_RESET_KEY) keys.push(key)
+      }
+      keys.forEach((k) => localStorage.removeItem(k))
+    }
+
+    localStorage.setItem(STORAGE_RESET_KEY, '1')
   } catch {
     /* ignore */
   }
