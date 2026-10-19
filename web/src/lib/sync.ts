@@ -27,6 +27,7 @@ export const API_BASE = '/api'
 export const writeLS = (key: string, v: unknown) => {
   try {
     localStorage.setItem(key, JSON.stringify(v))
+    console.log('[writeLS]', key)
     queueMicrotask(() => window.dispatchEvent(new CustomEvent(LS_WRITE_EVENT, { detail: { key } })))
   } catch {
     /* переполнение — не критично */
