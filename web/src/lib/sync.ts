@@ -82,20 +82,6 @@ export function useSyncedLS<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
-  // перезагружаем значение из localStorage при синхронизации с сервера или из другой вкладки
-  useEffect(() => {
-    const reload = () => setV(readLS(keyRef.current, initial))
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === keyRef.current) reload()
-    }
-    window.addEventListener('aod:sync-hydrated', reload)
-    window.addEventListener('storage', onStorage)
-    return () => {
-      window.removeEventListener('aod:sync-hydrated', reload)
-      window.removeEventListener('storage', onStorage)
-    }
-  }, [key, initial])
-
   const set: React.Dispatch<React.SetStateAction<T>> = (next) => {
     setV((prev) => {
       const value = typeof next === 'function' ? (next as (p: T) => T)(prev) : next
