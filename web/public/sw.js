@@ -1,4 +1,4 @@
-const CACHE_NAME = 'provodnik-v4'
+const CACHE_NAME = 'provodnik-v5'
 const SHELL = ['/', '/index.html']
 
 self.addEventListener('install', (event) => {
@@ -25,42 +25,16 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // shell — сначала сеть, потом кэш (чтобы всегда получать свежий index.html)
-  if (request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone()
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
-          }
-          return response
-        })
-        .catch(() => caches.match(request)),
-    )
-    return
-  }
-
-  // статика — сначала кэш, потом сеть с обновлением кэша
+  // всё остальное — сначала сеть, потом кэш как fallback
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) {
-        // в фоне обновляем
-        fetch(request)
-          .then((response) => {
-            if (response.ok) {
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()))
-            }
-          })
-          .catch(() => {})
-        return cached
-      }
-      return fetch(request).then((response) => {
-        if (!response.ok) return response
-        const clone = response.clone()
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const clone = response.clone()
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+        }
         return response
       })
-    }),
+      .catch(() => caches.match(request)),
   )
 })
