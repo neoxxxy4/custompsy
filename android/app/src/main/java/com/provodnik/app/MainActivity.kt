@@ -7,6 +7,7 @@ import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -38,7 +39,14 @@ class MainActivity : Activity() {
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.databaseEnabled = true
+        webView.settings.allowFileAccess = true
+        webView.settings.allowFileAccessFromFileURLs = true
+        webView.settings.allowUniversalAccessFromFileURLs = true
         webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+        webView.context.applicationContext.getDir("webview", android.content.Context.MODE_PRIVATE).let {
+            webView.settings.databasePath = it.path
+        }
+        if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
         webView.clearCache(true)
         webView.clearHistory()
         webView.clearFormData()
@@ -54,6 +62,10 @@ class MainActivity : Activity() {
                 if (url.host == "neoxxxy-4.ru") return false
                 startActivity(Intent(Intent.ACTION_VIEW, url))
                 return true
+            }
+
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                Log.e("ProvodnikWeb", "Error loading ${request?.url}: ${error?.description} (${error?.errorCode})")
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
