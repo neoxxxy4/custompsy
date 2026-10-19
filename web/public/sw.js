@@ -1,4 +1,4 @@
-const CACHE_NAME = 'provodnik-v1'
+const CACHE_NAME = 'provodnik-v2'
 const SHELL = ['/', '/index.html']
 
 self.addEventListener('install', (event) => {
@@ -25,21 +25,18 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // shell — сначала кэш, потом сеть
+  // shell — сначала сеть, потом кэш (чтобы всегда получать свежий index.html)
   if (request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        const network = fetch(request)
-          .then((response) => {
-            if (response.ok) {
-              const clone = response.clone()
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
-            }
-            return response
-          })
-          .catch(() => cached)
-        return cached || network
-      }),
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+          }
+          return response
+        })
+        .catch(() => caches.match(request)),
     )
     return
   }
