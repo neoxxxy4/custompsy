@@ -15,6 +15,7 @@ import {
   useLS,
 } from '../views/practice/store'
 import { WD } from '../lib/dayStats'
+import { readLS } from '../lib/sync'
 import { CATEGORIES, formatDateRu, isInverseParam, valueHex } from './mapLogic'
 
 interface SessionNote {
@@ -61,15 +62,6 @@ const safeDate = (d?: string | null): string => {
   return formatDateRu(d)
 }
 
-const readLS = <T,>(key: string): T | null => {
-  try {
-    const s = localStorage.getItem(key)
-    return s ? (JSON.parse(s) as T) : null
-  } catch {
-    return null
-  }
-}
-
 const todayIso = () => new Date().toISOString().slice(0, 10)
 
 const daysAgo = (n: number) => {
@@ -88,7 +80,7 @@ const collectTaskItems = (lists: BlockList[]): BlockItem[] =>
 
 const dayStat = (dateKey: string) => {
   const wdName = WD[new Date(dateKey + 'T00:00:00').getDay()]
-  const data = readLS<TodayData>(`aod4-today-data-${dateKey}`) ?? seedTodayData(dateKey, wdName, true)
+  const data = readLS<TodayData | null>(`aod4-today-data-${dateKey}`, null) ?? seedTodayData(dateKey, wdName, true)
   let done = 0
   let total = 0
   Object.values(data).forEach((block) => {

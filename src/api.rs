@@ -145,29 +145,41 @@ async fn put_balance(
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct SyncState {
+pub struct SyncStatePayload {
     pub state: std::collections::HashMap<String, serde_json::Value>,
 }
 
-async fn get_sync(State(state): State<AppState>) -> Result<Json<SyncState>, ApiError> {
+#[derive(serde::Serialize)]
+pub struct SyncEntry {
+    pub value: serde_json::Value,
+    pub updated_at: i64,
+}
+
+#[derive(serde::Serialize)]
+pub struct SyncStateResponse {
+    pub state: std::collections::HashMap<String, SyncEntry>,
+}
+
+async fn get_sync(State(state): State<AppState>) -> Result<Json<SyncStateResponse>, ApiError> {
     let db = &state.db;
     let conn = db.lock().unwrap();
-    let mut stmt = conn.prepare("SELECT key, value FROM sync_state")?;
-    let state: std::collections::HashMap<String, serde_json::Value> = stmt
+    let mut stmt = conn.prepare("SELECT key, value, updated_at FROM sync_state")?;
+    let state: std::collections::HashMap<String, SyncEntry> = stmt
         .query_map([], |r| {
             let key: String = r.get(0)?;
             let value: String = r.get(1)?;
+            let updated_at: i64 = r.get(2)?;
             let parsed: serde_json::Value = serde_json::from_str(&value).unwrap_or(serde_json::Value::Null);
-            Ok((key, parsed))
+            Ok((key, SyncEntry { value: parsed, updated_at }))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    Ok(Json(SyncState { state }))
+    Ok(Json(SyncStateResponse { state }))
 }
 
 async fn put_sync(
     State(state): State<AppState>,
-    Json(payload): Json<SyncState>,
-) -> Result<Json<SyncState>, ApiError> {
+    Json(payload): Json<SyncStatePayload>,
+) -> Result<Json<SyncStateResponse>, ApiError> {
     let db = &state.db;
     let conn = db.lock().unwrap();
     let tx = conn.unchecked_transaction()?;
@@ -181,7 +193,30 @@ async fn put_sync(
     }
     drop(stmt);
     tx.commit()?;
-    Ok(Json(payload))
+
+    // Возвращаем сохранённые записи с серверными timestamp'ами
+    let keys: Vec<&String> = payload.state.keys().collect();
+    if keys.is_empty() {
+        return Ok(Json(SyncStateResponse {
+            state: std::collections::HashMap::new(),
+        }));
+    }
+    let placeholders: Vec<String> = (1..=keys.len()).map(|i| format!("?{i}")).collect();
+    let sql = format!(
+        "SELECT key, value, updated_at FROM sync_state WHERE key IN ({})",
+        placeholders.join(",")
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let state: std::collections::HashMap<String, SyncEntry> = stmt
+        .query_map(rusqlite::params_from_iter(keys.iter()), |r| {
+            let key: String = r.get(0)?;
+            let value: String = r.get(1)?;
+            let updated_at: i64 = r.get(2)?;
+            let parsed: serde_json::Value = serde_json::from_str(&value).unwrap_or(serde_json::Value::Null);
+            Ok((key, SyncEntry { value: parsed, updated_at }))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(Json(SyncStateResponse { state }))
 }
 
 async fn get_sync_key(

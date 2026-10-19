@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { writeLS } from '../lib/sync'
+import { readLS, writeLS } from '../lib/sync'
 import {
   Flower2,
   Heart,
@@ -122,9 +122,7 @@ export const validAppTabIds = new Set<AppTabId>(Object.keys(BOTTOM_TAB_META) as 
 
 export function readTabs(): AppTab[] {
   try {
-    const s = localStorage.getItem(STORAGE_KEY)
-    if (!s) return DEFAULT_TABS
-    const parsed = JSON.parse(s) as AppTab[]
+    const parsed = readLS<AppTab[]>(STORAGE_KEY, [])
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_TABS
 
     const filtered = parsed.filter((tab) => validAppTabIds.has(tab.id))

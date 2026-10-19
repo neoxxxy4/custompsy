@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { API_BASE, LS_WRITE_EVENT, setSyncStatus } from './sync'
+import { API_BASE, LS_WRITE_EVENT, setSyncStatus, type SyncWrapper } from './sync'
 
 const IS_OFFLINE_MODE =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'offline'
@@ -35,6 +35,19 @@ const isSyncKey = (key: string) => key.startsWith('aod4-') && key !== LEADER_KEY
 function generateTabId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function parseWrapper(raw: string | null): SyncWrapper<unknown> | null {
+  if (raw === null) return null
+  try {
+    const parsed = JSON.parse(raw) as SyncWrapper<unknown> | unknown
+    if (parsed && typeof parsed === 'object' && 'v' in parsed && 't' in parsed) {
+      return parsed as SyncWrapper<unknown>
+    }
+    return { v: parsed, t: 0 }
+  } catch {
+    return null
+  }
 }
 
 export default function SyncProvider({ children }: { children: React.ReactNode }) {
@@ -76,13 +89,17 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     }
   }
 
-  const applyServerState = (state: Record<string, unknown>) => {
+  const applyServerState = (state: Record<string, { value: unknown; updated_at: number }>) => {
     try {
-      Object.entries(state).forEach(([key, value]) => {
+      Object.entries(state).forEach(([key, entry]) => {
         if (!isSyncKey(key)) return
         if (isProtected(key)) return
-        const serialized = JSON.stringify(value)
-        if (localStorage.getItem(key) === serialized) return // нет изменений
+        const serverTs = entry.updated_at * 1000
+        const local = parseWrapper(localStorage.getItem(key))
+        const localTs = local?.t ?? 0
+        if (localTs > serverTs) return // локальное значение новее
+        const serialized = JSON.stringify({ v: entry.value, t: serverTs })
+        if (localStorage.getItem(key) === serialized) return
         localStorage.setItem(key, serialized)
       })
       window.dispatchEvent(new Event('aod:sync-hydrated'))
@@ -125,10 +142,14 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     keys.forEach((k) => flushing.current.add(k))
 
     const state: Record<string, unknown> = {}
+    const snapshots: Record<string, unknown> = {}
     for (const key of keys) {
       try {
-        const raw = localStorage.getItem(key)
-        if (raw !== null) state[key] = JSON.parse(raw)
+        const local = parseWrapper(localStorage.getItem(key))
+        if (local) {
+          state[key] = local.v
+          snapshots[key] = local.v
+        }
       } catch {
         /* ignore */
       }
@@ -142,13 +163,23 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
         body: JSON.stringify({ state }),
       })
       if (!r.ok) throw new Error(`sync save ${r.status}`)
+      const result = (await r.json()) as { state: Record<string, { value: unknown; updated_at: number }> }
+
+      // Обновляем localStorage серверными timestamp'ами
+      for (const key of keys) {
+        const entry = result.state?.[key]
+        if (entry) {
+          localStorage.setItem(key, JSON.stringify({ v: entry.value, t: entry.updated_at * 1000 }))
+        }
+      }
 
       const changedDuringFlush: string[] = []
       for (const key of keys) {
         try {
-          const currentRaw = localStorage.getItem(key)
-          const sentRaw = JSON.stringify(state[key])
-          if (currentRaw !== sentRaw) {
+          const local = parseWrapper(localStorage.getItem(key))
+          const currentValue = local?.v
+          const sentValue = snapshots[key]
+          if (JSON.stringify(currentValue) !== JSON.stringify(sentValue)) {
             pending.current.add(key)
             changedDuringFlush.push(key)
           }

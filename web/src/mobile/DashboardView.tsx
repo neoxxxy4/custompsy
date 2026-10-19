@@ -10,6 +10,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useLS } from '../views/practice/store'
+import { readLS } from '../lib/sync'
 import { WD } from '../lib/dayStats'
 import { SOCIAL_LAYERS } from './socialTypes'
 import ProgressRing from './ProgressRing'
@@ -19,19 +20,10 @@ const todayIso = () => new Date().toISOString().slice(0, 10)
 const fmtKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
-const readLS = <T,>(key: string): T | null => {
-  try {
-    const s = localStorage.getItem(key)
-    return s !== null ? (JSON.parse(s) as T) : null
-  } catch {
-    return null
-  }
-}
-
 interface DayStat { done: number; total: number }
 
 const statOfDay = (dateKey: string): DayStat => {
-  const data = readLS<Record<string, { items?: { done: boolean }[]; lists?: unknown[] }>>(`aod4-today-data-${dateKey}`)
+  const data = readLS<Record<string, { items?: { done: boolean }[]; lists?: unknown[] }> | null>(`aod4-today-data-${dateKey}`, null)
   if (!data) return { done: 0, total: 0 }
   let done = 0
   let total = 0
