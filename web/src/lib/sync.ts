@@ -85,11 +85,14 @@ export function useSyncedLS<T>(
   // перезагружаем значение из localStorage при синхронизации с сервера или из другой вкладки
   useEffect(() => {
     const reload = () => setV(readLS(keyRef.current, initial))
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === keyRef.current) reload()
+    }
     window.addEventListener('aod:sync-hydrated', reload)
-    window.addEventListener('storage', reload)
+    window.addEventListener('storage', onStorage)
     return () => {
       window.removeEventListener('aod:sync-hydrated', reload)
-      window.removeEventListener('storage', reload)
+      window.removeEventListener('storage', onStorage)
     }
   }, [key, initial])
 
