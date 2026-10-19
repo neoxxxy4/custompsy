@@ -24,8 +24,7 @@ export const setSyncStatus = (s: SyncStatus) => { syncStatus = s }
 
 export const API_BASE = '/api'
 
-// одноразовая миграция: ранее экспериментировали с обёрткой { v, t },
-// старый код её не понимает — распаковываем обратно в сырые значения
+// одноразовая миграция: распаковываем оставшиеся {v,t}-обёртки в localStorage
 const MIGRATION_KEY = 'aod4-migrated-unwrap-v1'
 export function runStorageMigration() {
   try {
@@ -107,6 +106,17 @@ export function useSyncedLS<T>(
     setV(readLS(keyRef.current, initial))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
+
+  // перезагружаем значение из localStorage при синхронизации с сервера или из другой вкладки
+  useEffect(() => {
+    const reload = () => setV(readLS(keyRef.current, initial))
+    window.addEventListener('aod:sync-hydrated', reload)
+    window.addEventListener('storage', reload)
+    return () => {
+      window.removeEventListener('aod:sync-hydrated', reload)
+      window.removeEventListener('storage', reload)
+    }
+  }, [key, initial])
 
   const set: React.Dispatch<React.SetStateAction<T>> = (next) => {
     setV((prev) => {
