@@ -1,11 +1,15 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { API_BASE, LS_WRITE_EVENT, setSyncStatus } from './sync'
+import { dequeue, peekAll } from './syncQueue'
 
-const IS_LOCAL = typeof window !== 'undefined' && window.location.protocol === 'file:'
+const IS_OFFLINE_MODE =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'offline'
+const IS_LOCAL_FILE = typeof window !== 'undefined' && window.location.protocol === 'file:'
+const IS_OFFLINE = IS_OFFLINE_MODE || IS_LOCAL_FILE
 
 const WS_URL = (() => {
   if (typeof window === 'undefined') return ''
-  if (IS_LOCAL) return ''
+  if (IS_OFFLINE) return ''
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${window.location.host}${API_BASE}/ws`
 })()
@@ -16,9 +20,10 @@ interface SyncCtx {
   lastSyncAt: Date | null
   error: string | null
   connected: boolean
+  offline: boolean
 }
 
-const SyncContext = createContext<SyncCtx>({ lastSyncAt: null, error: null, connected: false })
+const SyncContext = createContext<SyncCtx>({ lastSyncAt: null, error: null, connected: false, offline: IS_OFFLINE })
 
 export const useSync = () => useContext(SyncContext)
 
@@ -76,9 +81,32 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     ws.send(JSON.stringify({ type: 'sync', state }))
   }
 
+  // Отправка очереди offline-first изменений
+  const flushQueue = async () => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    try {
+      const items = await peekAll()
+      if (items.length === 0) return
+      const state: Record<string, unknown> = {}
+      for (const item of items) {
+        state[item.key] = item.value
+      }
+      for (const key of Object.keys(state)) ignoreKeys.current.add(key)
+      setSyncStatus('syncing')
+      ws.send(JSON.stringify({ type: 'sync', state }))
+      // после успешной отправки чистим очередь
+      for (const item of items) {
+        if (item.id) await dequeue(item.id)
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   // Fallback polling через REST — на случай если WebSocket не работает
   useEffect(() => {
-    if (IS_LOCAL) return
+    if (IS_OFFLINE) return
     let interval = window.setInterval(() => {
       fetch(`${API_BASE}/sync`)
         .then((r) => r.json())
@@ -94,7 +122,7 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   }, [])
 
   useEffect(() => {
-    if (IS_LOCAL) return
+    if (IS_OFFLINE) return
     let reconnectTimer: number | null = null
     let pingTimer: number | null = null
     let closeIntentional = false
@@ -111,6 +139,8 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
           console.log('[WS] open')
           setConnected(true)
           setError(null)
+          // при подключении сразу отправляем накопленную очередь
+          flushQueue()
           pingTimer = window.setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }))
           }, 30000)
@@ -189,8 +219,18 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     return () => window.clearInterval(interval)
   }, [])
 
+  // Авто-синхронизация очереди при появлении сети
+  useEffect(() => {
+    if (IS_OFFLINE) return
+    const onOnline = () => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) flushQueue()
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [])
+
   return (
-    <SyncContext.Provider value={{ lastSyncAt, error, connected }}>
+    <SyncContext.Provider value={{ lastSyncAt, error, connected, offline: IS_OFFLINE }}>
       {children}
       <div
         style={{
@@ -215,10 +255,10 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
             width: 8,
             height: 8,
             borderRadius: '50%',
-            background: connected ? '#22c55e' : error ? '#ef4444' : '#eab308',
+            background: IS_OFFLINE ? '#8b5cf6' : connected ? '#22c55e' : error ? '#ef4444' : '#eab308',
           }}
         />
-        <span>{IS_LOCAL ? 'local' : connected ? 'online' : error ? 'err' : 'off'}</span>
+        <span>{IS_OFFLINE ? 'local' : connected ? 'online' : error ? 'err' : 'off'}</span>
       </div>
     </SyncContext.Provider>
   )

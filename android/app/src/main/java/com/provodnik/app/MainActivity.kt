@@ -17,9 +17,12 @@ class MainActivity : Activity() {
 
     private lateinit var webView: WebView
 
+    private val isOfflineMode: Boolean
+        get() = BuildConfig.FLAVOR == "offline"
+
     private val startUrl: String
-        get() = if (BuildConfig.FLAVOR == "offline") {
-            "file:///android_asset/index.html"
+        get() = if (isOfflineMode) {
+            "https://neoxxxy-4.ru/?mode=offline"
         } else {
             "https://neoxxxy-4.ru/"
         }
@@ -40,26 +43,15 @@ class MainActivity : Activity() {
         webView.settings.domStorageEnabled = true
         webView.settings.databaseEnabled = true
         webView.settings.allowFileAccess = true
-        webView.settings.allowFileAccessFromFileURLs = true
-        webView.settings.allowUniversalAccessFromFileURLs = true
         webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
-        webView.context.applicationContext.getDir("webview", android.content.Context.MODE_PRIVATE).let {
-            webView.settings.databasePath = it.path
-        }
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
-        webView.clearCache(true)
-        webView.clearHistory()
-        webView.clearFormData()
+
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url
-                if (BuildConfig.FLAVOR == "offline") {
-                    // в тестовом режиме всё работает локально из assets
-                    if (url.scheme == "file") return false
-                    startActivity(Intent(Intent.ACTION_VIEW, url))
-                    return true
-                }
+                // все внутренние ссылки neoxxxy-4.ru оставляем в WebView
                 if (url.host == "neoxxxy-4.ru") return false
+                // внешние ссылки — в браузер
                 startActivity(Intent(Intent.ACTION_VIEW, url))
                 return true
             }
@@ -76,7 +68,7 @@ class MainActivity : Activity() {
         }
 
         setContentView(webView)
-        val url = if (BuildConfig.FLAVOR == "offline") startUrl else "$startUrl?__v=${System.currentTimeMillis()}"
+        val url = "$startUrl&__v=${System.currentTimeMillis()}"
         webView.loadUrl(url)
     }
 
