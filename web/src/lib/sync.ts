@@ -24,6 +24,32 @@ export const setSyncStatus = (s: SyncStatus) => { syncStatus = s }
 
 export const API_BASE = '/api'
 
+// одноразовая миграция: ранее экспериментировали с обёрткой { v, t },
+// старый код её не понимает — распаковываем обратно в сырые значения
+const MIGRATION_KEY = 'aod4-migrated-unwrap-v1'
+export function runStorageMigration() {
+  try {
+    if (localStorage.getItem(MIGRATION_KEY)) return
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (!key || !key.startsWith('aod4-') || key === MIGRATION_KEY) continue
+      const raw = localStorage.getItem(key)
+      if (!raw) continue
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object' && 'v' in parsed && 't' in parsed) {
+          localStorage.setItem(key, JSON.stringify(parsed.v))
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    localStorage.setItem(MIGRATION_KEY, '1')
+  } catch {
+    /* ignore */
+  }
+}
+
 export const writeLS = (key: string, v: unknown) => {
   try {
     localStorage.setItem(key, JSON.stringify(v))

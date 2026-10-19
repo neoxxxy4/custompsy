@@ -12,9 +12,24 @@
         document.documentElement.dataset.theme = t;
       })();
     </script>
+    <style>
+      #boot-fallback {
+        position: fixed;
+        inset: 0;
+        z-index: 99998;
+        background: #0e1621;
+        color: #7f91a4;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-fallback">Загрузка...</div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
