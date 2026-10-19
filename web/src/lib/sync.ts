@@ -4,42 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 // Каждый ключ живёт в двух местах:
 //   1. состояние React (мгновенный UI)
 //   2. localStorage (персистентность; в APK — хранилище WebView)
-//
-// В localStorage храним обёртку { v: значение, t: timestamp_в_мс }.
-// Timestamp приходит с сервера (updated_at * 1000) и используется для
-// разрешения конфликтов между вкладками и устройствами.
-
-export interface SyncWrapper<T> {
-  v: T
-  t: number
-}
 
 export const readLS = <T,>(key: string, fallback: T): T => {
   try {
     const s = localStorage.getItem(key)
-    if (s === null) return fallback
-    const parsed = JSON.parse(s) as SyncWrapper<T> | T
-    // обратная совместимость: ранее хранились сырые значения
-    if (parsed && typeof parsed === 'object' && 'v' in parsed && 't' in parsed) {
-      return parsed.v
-    }
-    return parsed as T
+    return s !== null ? (JSON.parse(s) as T) : fallback
   } catch {
     return fallback
-  }
-}
-
-export const readLSWrapper = <T,>(key: string): SyncWrapper<T> | null => {
-  try {
-    const s = localStorage.getItem(key)
-    if (s === null) return null
-    const parsed = JSON.parse(s) as SyncWrapper<T> | T
-    if (parsed && typeof parsed === 'object' && 'v' in parsed && 't' in parsed) {
-      return parsed as SyncWrapper<T>
-    }
-    return { v: parsed as T, t: 0 }
-  } catch {
-    return null
   }
 }
 
@@ -55,8 +26,7 @@ export const API_BASE = '/api'
 
 export const writeLS = (key: string, v: unknown) => {
   try {
-    const wrapped: SyncWrapper<unknown> = { v, t: Date.now() }
-    localStorage.setItem(key, JSON.stringify(wrapped))
+    localStorage.setItem(key, JSON.stringify(v))
     queueMicrotask(() => window.dispatchEvent(new CustomEvent(LS_WRITE_EVENT, { detail: { key } })))
   } catch {
     /* переполнение — не критично */
@@ -70,14 +40,7 @@ export async function saveAllToServer(): Promise<void> {
     if (!key || !key.startsWith('aod4-')) continue
     try {
       const raw = localStorage.getItem(key)
-      if (raw !== null) {
-        const parsed = JSON.parse(raw) as SyncWrapper<unknown> | unknown
-        if (parsed && typeof parsed === 'object' && 'v' in parsed) {
-          state[key] = (parsed as SyncWrapper<unknown>).v
-        } else {
-          state[key] = parsed
-        }
-      }
+      if (raw !== null) state[key] = JSON.parse(raw)
     } catch {
       /* ignore */
     }

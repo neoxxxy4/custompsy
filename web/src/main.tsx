@@ -17,16 +17,8 @@ if ('serviceWorker' in navigator && !isOfflineMode()) {
   })
 }
 
-const root = createRoot(document.getElementById('root')!)
-root.render(
+createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
   </StrictMode>,
 )
-
-// убираем fallback-заставку после первого рендера
-setTimeout(() => {
-  const fb = document.getElementById('boot-fallback')
-  if (fb) fb.remove()
-}, 0)
-

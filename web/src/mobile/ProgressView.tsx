@@ -6,7 +6,6 @@ import {
   type TodayData,
 } from '../views/practice/store'
 import { WD } from '../lib/dayStats'
-import { readLS } from '../lib/sync'
 import { formatDateRu } from './mapLogic'
 
 type Period = 'week' | 'sprint' | 'all' | 'range'
@@ -15,6 +14,15 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const safeDate = (d?: string | null): string => {
   if (!d || !DATE_RE.test(d)) return '—'
   return formatDateRu(d)
+}
+
+const readLS = <T,>(key: string): T | null => {
+  try {
+    const s = localStorage.getItem(key)
+    return s ? (JSON.parse(s) as T) : null
+  } catch {
+    return null
+  }
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
@@ -35,7 +43,7 @@ const collectTaskItems = (lists: BlockList[]): BlockItem[] =>
 
 const dayStat = (dateKey: string) => {
   const wdName = WD[new Date(dateKey + 'T00:00:00').getDay()]
-  const data = readLS<TodayData | null>(`aod4-today-data-${dateKey}`, null) ?? seedTodayData(dateKey, wdName, true)
+  const data = readLS<TodayData>(`aod4-today-data-${dateKey}`) ?? seedTodayData(dateKey, wdName, true)
   let done = 0
   let total = 0
   Object.values(data).forEach((block) => {
