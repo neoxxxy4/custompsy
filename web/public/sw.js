@@ -1,4 +1,4 @@
-const CACHE_NAME = 'provodnik-v2'
+const CACHE_NAME = 'provodnik-v3'
 const SHELL = ['/', '/index.html']
 
 self.addEventListener('install', (event) => {
