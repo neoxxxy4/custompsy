@@ -4,6 +4,26 @@ import './index.css'
 import App from './App.tsx'
 import { runStorageMigration } from './lib/sync'
 
+const APP_VERSION = '5'
+
+// если версия приложения изменилась — очищаем localStorage и SW, чтобы не было
+// несовместимости старых данных с новым кодом
+const checkVersion = () => {
+  try {
+    if (localStorage.getItem('aod4-app-version') !== APP_VERSION) {
+      const keys: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && key.startsWith('aod4-')) keys.push(key)
+      }
+      keys.forEach((k) => localStorage.removeItem(k))
+      localStorage.setItem('aod4-app-version', APP_VERSION)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+checkVersion()
 runStorageMigration()
 
 const isOfflineMode = () => {
@@ -14,7 +34,6 @@ const isOfflineMode = () => {
 if ('serviceWorker' in navigator && !isOfflineMode()) {
   window.addEventListener('load', async () => {
     try {
-      // сначала снимаем все старые SW, чтобы избавиться от битого кэша
       const registrations = await navigator.serviceWorker.getRegistrations()
       await Promise.all(registrations.map((reg) => reg.unregister()))
     } catch (e) {
