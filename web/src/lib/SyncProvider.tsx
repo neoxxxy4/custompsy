@@ -4,8 +4,8 @@ import { API_BASE, LS_WRITE_EVENT, setSyncStatus } from './sync'
 const IS_OFFLINE_MODE =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'offline'
 
-const SYNC_DEBOUNCE_MS = 1000
-const POLL_MS = 3000
+const SYNC_DEBOUNCE_MS = 300
+const POLL_MS = 1500
 
 interface SyncCtx {
   lastSyncAt: Date | null
@@ -26,14 +26,18 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   const [connected, setConnected] = useState(false)
   const isHydrating = useRef(true)
   const pending = useRef<Set<string>>(new Set())
+  const flushing = useRef<Set<string>>(new Set())
   const timer = useRef<number | null>(null)
 
+  const protectedKeys = () => new Set([...Array.from(pending.current), ...Array.from(flushing.current)])
+
   const applyServerState = (state: Record<string, unknown>) => {
+    const skip = protectedKeys()
     try {
       Object.entries(state).forEach(([key, value]) => {
-        if (isSyncKey(key)) {
-          localStorage.setItem(key, JSON.stringify(value))
-        }
+        if (!isSyncKey(key)) return
+        if (skip.has(key)) return // не перезаписываем ключи, которые сейчас редактируем/отправляем
+        localStorage.setItem(key, JSON.stringify(value))
       })
       window.dispatchEvent(new Event('aod:sync-hydrated'))
     } catch {
@@ -68,9 +72,11 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
 
   const flush = async () => {
     if (IS_OFFLINE_MODE) return
+    if (flushing.current.size > 0) return // уже отправляем
     const keys = Array.from(pending.current)
     if (keys.length === 0) return
     pending.current.clear()
+    keys.forEach((k) => flushing.current.add(k))
 
     const state: Record<string, unknown> = {}
     for (const key of keys) {
@@ -93,10 +99,14 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
       setLastSyncAt(new Date())
       setError(null)
       setConnected(true)
+      keys.forEach((k) => flushing.current.delete(k))
     } catch (e) {
       setError(String(e))
       setConnected(false)
-      keys.forEach((k) => pending.current.add(k))
+      keys.forEach((k) => {
+        flushing.current.delete(k)
+        pending.current.add(k)
+      })
     } finally {
       setSyncStatus('idle')
     }
@@ -113,6 +123,7 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
       if (isHydrating.current) return
       const key = (e as CustomEvent<{ key: string }>).detail?.key
       if (!key || !isSyncKey(key)) return
+      if (flushing.current.has(key)) return // ждём окончания текущей отправки
       pending.current.add(key)
       if (timer.current) window.clearTimeout(timer.current)
       timer.current = window.setTimeout(() => { void flush() }, SYNC_DEBOUNCE_MS)
@@ -129,8 +140,11 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (IS_OFFLINE_MODE) return
     const interval = window.setInterval(() => {
-      if (pending.current.size > 0) void flush()
-      void loadState()
+      if (pending.current.size > 0) {
+        void flush()
+      } else {
+        void loadState()
+      }
     }, POLL_MS)
     return () => window.clearInterval(interval)
   }, [])
