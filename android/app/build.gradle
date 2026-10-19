@@ -27,6 +27,23 @@ android {
     sourceSets {
         main.assets.srcDir "$buildDir/web-assets"
     }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    flavorDimensions += "mode"
+    productFlavors {
+        prod {
+            dimension = "mode"
+        }
+        offline {
+            dimension = "mode"
+            applicationIdSuffix = ".test"
+            versionNameSuffix = "-test"
+            resValue "string", "app_name", "Проводник Тест"
+        }
+    }
 }
 
 tasks.register('syncWebAssets', Copy) {

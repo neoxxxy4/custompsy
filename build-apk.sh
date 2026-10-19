@@ -5,12 +5,12 @@ set -e
 cd "$(dirname "$0")/web"
 npm run build
 
-# 2. Собираем Android APK (debug, подписанный debug-ключом — для теста на устройстве)
+# 2. Собираем Android APK (prod flavor, debug)
 cd "../android"
-./gradlew assembleDebug
+./gradlew assembleProdDebug
 
 # 3. Копируем в папку apk/ с меткой времени
-OUT="app/build/outputs/apk/debug/app-debug.apk"
+OUT="app/build/outputs/apk/prod/debug/app-prod-debug.apk"
 NAME="provodnik-debug-$(date +%Y%m%d-%H%M).apk"
 cp "$OUT" "../apk/$NAME"
 

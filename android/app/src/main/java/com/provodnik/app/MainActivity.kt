@@ -12,11 +12,16 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
-private const val START_URL = "https://neoxxxy-4.ru/"
-
 class MainActivity : Activity() {
 
     private lateinit var webView: WebView
+
+    private val startUrl: String
+        get() = if (BuildConfig.FLAVOR == "offline") {
+            "file:///android_asset/index.html"
+        } else {
+            "https://neoxxxy-4.ru/"
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,8 +44,15 @@ class MainActivity : Activity() {
         webView.clearFormData()
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                if (request.url.host == "neoxxxy-4.ru") return false
-                startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                val url = request.url
+                if (BuildConfig.FLAVOR == "offline") {
+                    // в тестовом режиме всё работает локально из assets
+                    if (url.scheme == "file") return false
+                    startActivity(Intent(Intent.ACTION_VIEW, url))
+                    return true
+                }
+                if (url.host == "neoxxxy-4.ru") return false
+                startActivity(Intent(Intent.ACTION_VIEW, url))
                 return true
             }
         }
@@ -52,8 +64,8 @@ class MainActivity : Activity() {
         }
 
         setContentView(webView)
-        val busted = "$START_URL?__v=${System.currentTimeMillis()}"
-        webView.loadUrl(busted)
+        val url = if (BuildConfig.FLAVOR == "offline") startUrl else "$startUrl?__v=${System.currentTimeMillis()}"
+        webView.loadUrl(url)
     }
 
     @Deprecated("Deprecated in Java")

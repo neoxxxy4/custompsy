@@ -1,8 +1,11 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { API_BASE, LS_WRITE_EVENT, setSyncStatus } from './sync'
 
+const IS_LOCAL = typeof window !== 'undefined' && window.location.protocol === 'file:'
+
 const WS_URL = (() => {
   if (typeof window === 'undefined') return ''
+  if (IS_LOCAL) return ''
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${window.location.host}${API_BASE}/ws`
 })()
@@ -75,6 +78,7 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
 
   // Fallback polling через REST — на случай если WebSocket не работает
   useEffect(() => {
+    if (IS_LOCAL) return
     let interval = window.setInterval(() => {
       fetch(`${API_BASE}/sync`)
         .then((r) => r.json())
@@ -90,6 +94,7 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   }, [])
 
   useEffect(() => {
+    if (IS_LOCAL) return
     let reconnectTimer: number | null = null
     let pingTimer: number | null = null
     let closeIntentional = false
@@ -213,7 +218,7 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
             background: connected ? '#22c55e' : error ? '#ef4444' : '#eab308',
           }}
         />
-        <span>{connected ? 'online' : error ? 'err' : 'off'}</span>
+        <span>{IS_LOCAL ? 'local' : connected ? 'online' : error ? 'err' : 'off'}</span>
       </div>
     </SyncContext.Provider>
   )
