@@ -8,7 +8,10 @@ import { useEffect, useRef, useState } from 'react'
 export const readLS = <T,>(key: string, fallback: T): T => {
   try {
     const s = localStorage.getItem(key)
-    return s !== null ? (JSON.parse(s) as T) : fallback
+    if (s === null) return fallback
+    const parsed = JSON.parse(s)
+    // если в localStorage случайно записался null — отдаём fallback, а не null
+    return parsed === null ? fallback : (parsed as T)
   } catch {
     return fallback
   }
