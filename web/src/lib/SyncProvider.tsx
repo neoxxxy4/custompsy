@@ -190,6 +190,9 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   }, [])
 
   useEffect(() => {
+    // первый рендер отработал — теперь изменения должны уходить на сервер
+    isHydrating.current = false
+
     const onWrite = (e: Event) => {
       if (isHydrating.current) return
       const key = (e as CustomEvent<{ key: string }>).detail?.key
