@@ -3,18 +3,65 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <title>Архитектор — система осознанного доверия</title>
     <script>
       // тема применяется до первого рендера, чтобы не мигала
       (function () {
         var t = 'blueprint';
-        try { t = JSON.parse(localStorage.getItem('aod2-theme')) || 'blueprint'; } catch (e) {}
+        try {
+          var stored = localStorage.getItem('aod2-theme');
+          if (stored) {
+            var parsed = JSON.parse(stored);
+            if (typeof parsed === 'string' && parsed) t = parsed;
+          }
+        } catch (e) {}
         document.documentElement.dataset.theme = t;
       })();
+
+      // если JS упал до загрузки React — показываем ошибку вместо чёрного экрана
+      window.addEventListener('error', function (e) {
+        var el = document.getElementById('boot-error');
+        if (el) {
+          el.style.display = 'block';
+          el.textContent = 'Ошибка загрузки: ' + (e.message || e.error || 'unknown');
+        }
+        console.error('Global error:', e);
+      });
     </script>
+    <style>
+      #boot-error {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        background: #0e1621;
+        color: #f5f5f5;
+        padding: 24px;
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        overflow: auto;
+      }
+      #boot-fallback {
+        position: fixed;
+        inset: 0;
+        z-index: 99998;
+        background: #0e1621;
+        color: #7f91a4;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-fallback">Загрузка...</div>
+    <div id="boot-error"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
