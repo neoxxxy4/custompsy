@@ -6,6 +6,7 @@ const IS_OFFLINE_MODE =
 
 const SYNC_DEBOUNCE_MS = 300
 const POLL_MS = 1500
+const RECENT_FLUSH_MS = 3000 // не применяем серверное состояние для только что отправленных ключей
 
 interface SyncCtx {
   lastSyncAt: Date | null
@@ -27,16 +28,20 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   const isHydrating = useRef(true)
   const pending = useRef<Set<string>>(new Set())
   const flushing = useRef<Set<string>>(new Set())
+  const recentlyFlushed = useRef<Map<string, number>>(new Map())
   const timer = useRef<number | null>(null)
 
-  const protectedKeys = () => new Set([...Array.from(pending.current), ...Array.from(flushing.current)])
+  const isProtected = (key: string) => {
+    if (pending.current.has(key) || flushing.current.has(key)) return true
+    const ts = recentlyFlushed.current.get(key)
+    return ts !== undefined && Date.now() - ts < RECENT_FLUSH_MS
+  }
 
   const applyServerState = (state: Record<string, unknown>) => {
-    const skip = protectedKeys()
     try {
       Object.entries(state).forEach(([key, value]) => {
         if (!isSyncKey(key)) return
-        if (skip.has(key)) return // не перезаписываем ключи, которые сейчас редактируем/отправляем
+        if (isProtected(key)) return // не перезаписываем ключи в работе / только что отправленные
         localStorage.setItem(key, JSON.stringify(value))
       })
       window.dispatchEvent(new Event('aod:sync-hydrated'))
@@ -78,6 +83,7 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     pending.current.clear()
     keys.forEach((k) => flushing.current.add(k))
 
+    // фиксируем текущие значения прямо перед отправкой
     const state: Record<string, unknown> = {}
     for (const key of keys) {
       try {
@@ -96,10 +102,42 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
         body: JSON.stringify({ state }),
       })
       if (!r.ok) throw new Error(`sync save ${r.status}`)
+
+      // если ключ изменился во время отправки — отправим ещё раз
+      const changedDuringFlush: string[] = []
+      for (const key of keys) {
+        try {
+          const currentRaw = localStorage.getItem(key)
+          const sentRaw = JSON.stringify(state[key])
+          if (currentRaw !== sentRaw) {
+            pending.current.add(key)
+            changedDuringFlush.push(key)
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const now = Date.now()
+      keys.forEach((k) => {
+        flushing.current.delete(k)
+        recentlyFlushed.current.set(k, now)
+      })
+
+      // чистим старые записи
+      const cutoff = now - RECENT_FLUSH_MS
+      for (const [k, ts] of recentlyFlushed.current.entries()) {
+        if (ts < cutoff) recentlyFlushed.current.delete(k)
+      }
+
       setLastSyncAt(new Date())
       setError(null)
       setConnected(true)
-      keys.forEach((k) => flushing.current.delete(k))
+
+      if (changedDuringFlush.length > 0) {
+        if (timer.current) window.clearTimeout(timer.current)
+        timer.current = window.setTimeout(() => { void flush() }, SYNC_DEBOUNCE_MS)
+      }
     } catch (e) {
       setError(String(e))
       setConnected(false)
@@ -123,12 +161,11 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
       if (isHydrating.current) return
       const key = (e as CustomEvent<{ key: string }>).detail?.key
       if (!key || !isSyncKey(key)) return
-      if (flushing.current.has(key)) return // ждём окончания текущей отправки
+      // добавляем в pending в любом случае — даже если ключ сейчас flushing
       pending.current.add(key)
       if (timer.current) window.clearTimeout(timer.current)
       timer.current = window.setTimeout(() => { void flush() }, SYNC_DEBOUNCE_MS)
     }
-
     window.addEventListener(LS_WRITE_EVENT, onWrite)
     return () => {
       window.removeEventListener(LS_WRITE_EVENT, onWrite)
