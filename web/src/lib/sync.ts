@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { enqueue } from './syncQueue'
 
 // ─── движок синхронизации ───
 // Каждый ключ живёт в двух местах:
 //   1. состояние React (мгновенный UI)
 //   2. localStorage (персистентность; в APK — хранилище WebView)
-//   3. очередь изменений в IndexedDB для offline-first sync
 
 export const readLS = <T,>(key: string, fallback: T): T => {
   try {
@@ -29,10 +27,6 @@ export const API_BASE = '/api'
 export const writeLS = (key: string, v: unknown) => {
   try {
     localStorage.setItem(key, JSON.stringify(v))
-    // offline-first: кладём изменение в очередь для отправки на сервер
-    if (key.startsWith('aod4-')) {
-      enqueue(key, v).catch(() => {})
-    }
     queueMicrotask(() => window.dispatchEvent(new CustomEvent(LS_WRITE_EVENT, { detail: { key } })))
   } catch {
     /* переполнение — не критично */

@@ -1,15 +1,12 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { API_BASE, LS_WRITE_EVENT, setSyncStatus } from './sync'
-import { dequeue, peekAll } from './syncQueue'
 
 const IS_OFFLINE_MODE =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'offline'
-const IS_LOCAL_FILE = typeof window !== 'undefined' && window.location.protocol === 'file:'
-const IS_OFFLINE = IS_OFFLINE_MODE || IS_LOCAL_FILE
 
 const WS_URL = (() => {
   if (typeof window === 'undefined') return ''
-  if (IS_OFFLINE) return ''
+  if (IS_OFFLINE_MODE) return ''
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${window.location.host}${API_BASE}/ws`
 })()
@@ -23,7 +20,7 @@ interface SyncCtx {
   offline: boolean
 }
 
-const SyncContext = createContext<SyncCtx>({ lastSyncAt: null, error: null, connected: false, offline: IS_OFFLINE })
+const SyncContext = createContext<SyncCtx>({ lastSyncAt: null, error: null, connected: false, offline: IS_OFFLINE_MODE })
 
 export const useSync = () => useContext(SyncContext)
 
@@ -38,7 +35,6 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
-  const isHydrating = useRef(true)
   const pending = useRef<Set<string>>(new Set())
   const timer = useRef<number | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -78,35 +74,13 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     if (Object.keys(state).length === 0) return
     for (const key of Object.keys(state)) ignoreKeys.current.add(key)
     setSyncStatus('syncing')
+    console.log('[WS] sending sync', state)
     ws.send(JSON.stringify({ type: 'sync', state }))
   }
 
-  // Отправка очереди offline-first изменений
-  const flushQueue = async () => {
-    const ws = wsRef.current
-    if (!ws || ws.readyState !== WebSocket.OPEN) return
-    try {
-      const items = await peekAll()
-      if (items.length === 0) return
-      const state: Record<string, unknown> = {}
-      for (const item of items) {
-        state[item.key] = item.value
-      }
-      for (const key of Object.keys(state)) ignoreKeys.current.add(key)
-      setSyncStatus('syncing')
-      ws.send(JSON.stringify({ type: 'sync', state }))
-      // после успешной отправки чистим очередь
-      for (const item of items) {
-        if (item.id) await dequeue(item.id)
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // Fallback polling через REST — на случай если WebSocket не работает
+  // Fallback polling через REST
   useEffect(() => {
-    if (IS_OFFLINE) return
+    if (IS_OFFLINE_MODE) return
     let interval = window.setInterval(() => {
       fetch(`${API_BASE}/sync`)
         .then((r) => r.json())
@@ -122,7 +96,7 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   }, [])
 
   useEffect(() => {
-    if (IS_OFFLINE) return
+    if (IS_OFFLINE_MODE) return
     let reconnectTimer: number | null = null
     let pingTimer: number | null = null
     let closeIntentional = false
@@ -139,8 +113,7 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
           console.log('[WS] open')
           setConnected(true)
           setError(null)
-          // при подключении сразу отправляем накопленную очередь
-          flushQueue()
+          sendPending()
           pingTimer = window.setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }))
           }, 30000)
@@ -190,12 +163,9 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   }, [])
 
   useEffect(() => {
-    // первый рендер отработал — теперь изменения должны уходить на сервер
-    isHydrating.current = false
-
     const onWrite = (e: Event) => {
-      if (isHydrating.current) return
       const key = (e as CustomEvent<{ key: string }>).detail?.key
+      console.log('[Sync] write event', key)
       if (!key || !isSyncKey(key)) return
       if (ignoreKeys.current.has(key)) {
         ignoreKeys.current.delete(key)
@@ -222,18 +192,8 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     return () => window.clearInterval(interval)
   }, [])
 
-  // Авто-синхронизация очереди при появлении сети
-  useEffect(() => {
-    if (IS_OFFLINE) return
-    const onOnline = () => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) flushQueue()
-    }
-    window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
-  }, [])
-
   return (
-    <SyncContext.Provider value={{ lastSyncAt, error, connected, offline: IS_OFFLINE }}>
+    <SyncContext.Provider value={{ lastSyncAt, error, connected, offline: IS_OFFLINE_MODE }}>
       {children}
       <div
         style={{
@@ -258,10 +218,10 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
             width: 8,
             height: 8,
             borderRadius: '50%',
-            background: IS_OFFLINE ? '#8b5cf6' : connected ? '#22c55e' : error ? '#ef4444' : '#eab308',
+            background: IS_OFFLINE_MODE ? '#8b5cf6' : connected ? '#22c55e' : error ? '#ef4444' : '#eab308',
           }}
         />
-        <span>{IS_OFFLINE ? 'local' : connected ? 'online' : error ? 'err' : 'off'}</span>
+        <span>{IS_OFFLINE_MODE ? 'local' : connected ? 'online' : error ? 'err' : 'off'}</span>
       </div>
     </SyncContext.Provider>
   )
