@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import MobileBottomNav, { type AppTabId } from './MobileBottomNav'
+import MobileBottomNav, { type BottomTabId } from './MobileBottomNav'
 import TodayView from './TodayView'
 import MapView from './MapView'
 import EmotionsView from './EmotionsView'
@@ -13,13 +13,13 @@ import SocialView from './SocialView'
 import RecordsView from './RecordsView'
 import DashboardView from './DashboardView'
 import TabShell from './TabShell'
-import { DEFAULT_TABS, useAppTabs, type MTab } from './navConfig'
+import { DEFAULT_TABS, useAppTabs, validToolIds, type MTab } from './navConfig'
 import type { ThemeId } from '@/lib/theme'
 
 export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; onToggleTheme: () => void }) {
   const [tabs, setTabs] = useAppTabs()
-  const [tab, setTab] = useState<AppTabId>('day')
-  const [activeFolder, setActiveFolder] = useState<Partial<Record<AppTabId, string>>>({})
+  const [tab, setTab] = useState<BottomTabId>('day')
+  const [activeFolder, setActiveFolder] = useState<Partial<Record<string, string>>>({})
   const [activeTool, setActiveTool] = useState<MTab | null>(null)
 
   const currentTab = useMemo(() => tabs.find((t) => t.id === tab) ?? tabs[0], [tabs, tab])
@@ -33,7 +33,7 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
     }
   }
 
-  const switchTab = (t: AppTabId) => {
+  const switchTab = (t: BottomTabId) => {
     setTab(t)
     setActiveTool(null)
     globalThis.window.scrollTo({ top: 0 })
@@ -54,7 +54,7 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
       }
     }
     const onSwitchTab = (e: Event) => {
-      const id = (e as CustomEvent<{ tab: AppTabId }>).detail?.tab
+      const id = (e as CustomEvent<{ tab: BottomTabId }>).detail?.tab
       if (id) switchTab(id)
     }
     globalThis.window.addEventListener('popstate', onPopState)
@@ -115,6 +115,9 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         <SessionView />
       ) : tab === 'settings' ? (
         <SettingsView theme={theme} onToggleTheme={onToggleTheme} tabs={tabs} setTabs={setTabs} />
+      ) : validToolIds.has(tab as MTab) ? (
+        // сервис как самостоятельная нижняя вкладка — без оболочки папок
+        renderTool(tab as MTab)
       ) : null}
 
       <MobileBottomNav tabs={tabs} tab={tab} onTab={switchTab} />

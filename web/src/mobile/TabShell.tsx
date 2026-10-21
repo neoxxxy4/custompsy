@@ -24,6 +24,9 @@ export default function TabShell({
 
   return (
     <div className="min-h-screen pt-12">
+      {/* прозрачный ловец кликов: закрывает дропдаун, не скрывая открытый сервис */}
+      {expanded && <div className="fixed inset-0 z-20" onClick={() => setExpanded(false)} />}
+
       <div
         className="fixed top-0 inset-x-0 z-30 px-3 pt-2 pb-2"
         style={{ background: 'color-mix(in srgb, var(--bg) 92%, transparent)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
@@ -61,18 +64,12 @@ export default function TabShell({
             })}
           </div>
         </div>
-      </div>
 
-      {expanded && (
-        <div
-          className="fixed inset-x-0 z-20 px-3 pt-16 pb-4"
-          style={{ top: 0, bottom: 0, background: 'color-mix(in srgb, var(--bg) 96%, transparent)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' }}
-          onClick={() => setExpanded(false)}
-        >
+        {/* папки выпадают сверху вниз прямо под строкой сервисов — вид сервиса не перекрывается */}
+        {expanded && (
           <div
-            className="flex items-center gap-2 rounded-full px-2 py-1 overflow-x-auto no-scrollbar"
-            style={{ background: 'var(--surface)', border: '1px solid var(--line)', marginTop: 44 }}
-            onClick={(e) => e.stopPropagation()}
+            className="mt-1 flex flex-wrap gap-1 rounded-2xl px-2 py-2"
+            style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
           >
             {folders.map((folder) => {
               const active = folder.id === activeFolderId
@@ -93,8 +90,8 @@ export default function TabShell({
               )
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {toolView ? (
         <div className="overflow-x-hidden">{toolView}</div>

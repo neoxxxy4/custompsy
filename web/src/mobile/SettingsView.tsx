@@ -5,12 +5,13 @@ import { getDirtySet, saveAllToServer, useLSTick } from '../lib/sync'
 import { useSync } from '../lib/SyncProvider'
 import { useLS } from '../views/practice/store'
 import {
-  BOTTOM_TAB_META,
+  ALL_TAB_META,
   DEFAULT_TABS,
   TOOL_META,
   validToolIds,
   type AppTab,
   type AppTabId,
+  type BottomTabId,
   type MTab,
   type NavFolder,
   type NavItem,
@@ -85,40 +86,42 @@ export default function SettingsView({
     markDirty()
   }
 
-  const updateTab = (id: AppTabId, patch: Partial<AppTab>) => {
-    updateTabs(tabs.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+  // папки живут на вкладке «Инструменты»; если она снята с панели — возвращаем её с изменением
+  const patchToolsTab = (fn: (tab: AppTab) => AppTab) => {
+    const existing = tabs.find((t) => t.id === editTab)
+    if (existing) {
+      updateTabs(tabs.map((t) => (t.id === editTab ? fn(t) : t)))
+    } else if (tabs.length < 5) {
+      updateTabs([...tabs, fn({ ...DEFAULT_TABS.find((t) => t.id === editTab)! })])
+    }
   }
 
   const addFolder = () => {
-    updateTab(editTab, {
-      folders: [
-        ...tabs.find((t) => t.id === editTab)!.folders,
-        { id: `folder-${Date.now()}`, label: 'Новая папка', items: [] },
-      ],
-    })
+    patchToolsTab((t) => ({
+      ...t,
+      folders: [...t.folders, { id: `folder-${Date.now()}`, label: 'Новая папка', items: [] }],
+    }))
   }
 
   const removeFolder = (folderId: string) => {
-    updateTab(editTab, {
-      folders: tabs.find((t) => t.id === editTab)!.folders.filter((f) => f.id !== folderId),
-    })
+    patchToolsTab((t) => ({ ...t, folders: t.folders.filter((f) => f.id !== folderId) }))
   }
 
   const updateFolder = (folderId: string, patch: Partial<NavFolder>) => {
-    updateTab(editTab, {
-      folders: tabs
-        .find((t) => t.id === editTab)!
-        .folders.map((f) => (f.id === folderId ? { ...f, ...patch } : f)),
-    })
+    patchToolsTab((t) => ({
+      ...t,
+      folders: t.folders.map((f) => (f.id === folderId ? { ...f, ...patch } : f)),
+    }))
   }
 
   const moveFolder = (from: number, to: number) => {
     if (from === to) return
-    const tab = tabs.find((t) => t.id === editTab)!
-    const next = [...tab.folders]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
-    updateTab(editTab, { folders: next })
+    patchToolsTab((t) => {
+      const next = [...t.folders]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return { ...t, folders: next }
+    })
   }
 
   const folderDrag = useDragList({
@@ -168,15 +171,15 @@ export default function SettingsView({
     updateTabs(next)
   }
 
-  const removeBottomTab = (id: AppTabId) => {
-    if (tabs.length <= 3) return
+  const removeBottomTab = (id: BottomTabId) => {
+    if (tabs.length <= 1) return
     updateTabs(tabs.filter((t) => t.id !== id))
   }
 
-  const addBottomTab = (id: AppTabId) => {
+  const addBottomTab = (id: BottomTabId) => {
     if (tabs.length >= 5) return
     if (tabs.some((t) => t.id === id)) return
-    const meta = BOTTOM_TAB_META[id]
+    const meta = ALL_TAB_META[id]
     const base = DEFAULT_TABS.find((t) => t.id === id)
     updateTabs([...tabs, { id, label: meta.label, icon: meta.icon, folders: base?.folders ?? [] }])
   }
@@ -211,7 +214,7 @@ export default function SettingsView({
     onLongPress: () => {},
   })
 
-  const availableBottomTabs = (Object.keys(BOTTOM_TAB_META) as AppTabId[]).filter(
+  const availableBottomTabs = (Object.keys(ALL_TAB_META) as BottomTabId[]).filter(
     (id) => !tabs.some((t) => t.id === id)
   )
 
@@ -314,7 +317,7 @@ export default function SettingsView({
           <span style={{ fontSize: 11, color: 'var(--muted)' }}>{tabs.length}/5</span>
         </div>
         <p className="mb-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
-          Порядок и состав нижней панели. Минимум 3, максимум 5.
+          Порядок и состав нижней панели — любые сервисы. Максимум 5.
         </p>
         <div
           {...bottomTabDrag.containerProps}
@@ -336,9 +339,9 @@ export default function SettingsView({
                 </span>
                 <button
                   onClick={() => removeBottomTab(t.id)}
-                  disabled={tabs.length <= 3}
+                  disabled={tabs.length <= 1}
                   className="p-1"
-                  style={{ color: tabs.length <= 3 ? 'var(--line-strong)' : 'var(--muted)' }}
+                  style={{ color: tabs.length <= 1 ? 'var(--line-strong)' : 'var(--muted)' }}
                 >
                   <X size={14} strokeWidth={1.8} />
                 </button>
@@ -355,7 +358,7 @@ export default function SettingsView({
                 className="px-2 py-1 rounded-lg"
                 style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', fontSize: 11, color: 'var(--muted)' }}
               >
-                + {BOTTOM_TAB_META[id].label}
+                + {ALL_TAB_META[id].label}
               </button>
             ))}
           </div>

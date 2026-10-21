@@ -18,6 +18,9 @@ import {
 
 export type AppTabId = 'tools' | 'day' | 'chat' | 'session' | 'settings' | 'dashboard'
 
+// нижняя вкладка может быть любым сервисом: системным (AppTabId) или инструментом (MTab)
+export type BottomTabId = AppTabId | MTab
+
 export type MTab =
   | 'notes'
   | 'emotions'
@@ -40,7 +43,7 @@ export interface NavFolder {
 }
 
 export interface AppTab {
-  id: AppTabId
+  id: BottomTabId
   label: string
   icon: LucideIcon
   folders: NavFolder[]
@@ -66,6 +69,12 @@ export const BOTTOM_TAB_META: Record<AppTabId, { label: string; icon: LucideIcon
   chat: { label: 'Чат', icon: MessageCircle },
   session: { label: 'Сессия', icon: MessageCircle },
   settings: { label: 'Настройки', icon: Settings },
+}
+
+// мета всех возможных нижних вкладок: системные сервисы + инструменты
+export const ALL_TAB_META: Record<BottomTabId, { label: string; icon: LucideIcon }> = {
+  ...BOTTOM_TAB_META,
+  ...TOOL_META,
 }
 
 export const DEFAULT_TABS: AppTab[] = [
@@ -118,7 +127,7 @@ export const DEFAULT_TABS: AppTab[] = [
 const STORAGE_KEY = 'aod4-app-tabs'
 
 export const validToolIds = new Set<MTab>(Object.keys(TOOL_META) as MTab[])
-export const validAppTabIds = new Set<AppTabId>(Object.keys(BOTTOM_TAB_META) as AppTabId[])
+export const validBottomTabIds = new Set<BottomTabId>(Object.keys(ALL_TAB_META) as BottomTabId[])
 
 export function readTabs(): AppTab[] {
   try {
@@ -127,11 +136,16 @@ export function readTabs(): AppTab[] {
     const parsed = JSON.parse(s) as AppTab[]
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_TABS
 
-    const filtered = parsed.filter((tab) => validAppTabIds.has(tab.id))
+    const seen = new Set<BottomTabId>()
+    const filtered = parsed.filter((tab) => {
+      if (!validBottomTabIds.has(tab.id) || seen.has(tab.id)) return false
+      seen.add(tab.id)
+      return true
+    })
     if (filtered.length === 0) return DEFAULT_TABS
 
-    const merged = filtered.map((tab) => {
-      const meta = BOTTOM_TAB_META[tab.id]
+    return filtered.slice(0, 5).map((tab) => {
+      const meta = ALL_TAB_META[tab.id]
       const base = DEFAULT_TABS.find((t) => t.id === tab.id)
       let folders = (tab.folders ?? []).map((folder) => ({
         ...folder,
@@ -144,12 +158,6 @@ export function readTabs(): AppTab[] {
       }
       return { ...tab, label: meta.label, icon: meta.icon, folders }
     })
-
-    const present = new Set(merged.map((t) => t.id))
-    const missing = DEFAULT_TABS.filter((t) => !present.has(t.id) && merged.length < 5)
-    const result = [...merged, ...missing]
-
-    return result.length >= 3 ? result : DEFAULT_TABS
   } catch {
     return DEFAULT_TABS
   }

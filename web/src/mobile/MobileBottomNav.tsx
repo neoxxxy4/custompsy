@@ -1,6 +1,6 @@
-import type { AppTab, AppTabId } from './navConfig'
+import type { AppTab, BottomTabId } from './navConfig'
 
-export type { AppTabId } from './navConfig'
+export type { BottomTabId } from './navConfig'
 
 export default function MobileBottomNav({
   tabs,
@@ -8,8 +8,8 @@ export default function MobileBottomNav({
   onTab,
 }: {
   tabs: AppTab[]
-  tab: AppTabId
-  onTab: (t: AppTabId) => void
+  tab: BottomTabId
+  onTab: (t: BottomTabId) => void
 }) {
   return (
     <nav
