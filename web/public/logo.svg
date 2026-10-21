@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="118" fill="#1b1b1f"/>
+  <!-- posts -->
+  <rect x="182" y="118" width="27" height="72" rx="13.5" fill="#f2ede4"/>
+  <rect x="303" y="118" width="27" height="72" rx="13.5" fill="#f2ede4"/>
+  <!-- calendar body -->
+  <rect x="116" y="158" width="280" height="248" rx="38" fill="none" stroke="#f2ede4" stroke-width="20"/>
+  <!-- header divider -->
+  <line x1="132" y1="226" x2="380" y2="226" stroke="#f2ede4" stroke-width="14"/>
+  <!-- date grid -->
+  <g fill="#f2ede4">
+    <rect x="150" y="250" width="42" height="42" rx="9"/>
+    <rect x="208" y="250" width="42" height="42" rx="9"/>
+    <rect x="266" y="250" width="42" height="42" rx="9"/>
+    <rect x="150" y="308" width="42" height="42" rx="9"/>
+    <rect x="208" y="308" width="42" height="42" rx="9"/>
+    <rect x="266" y="308" width="42" height="42" rx="9"/>
+  </g>
+  <!-- checkmark -->
+  <path d="M158 316 L226 384 L372 190" fill="none" stroke="#2f7dff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
