@@ -23,6 +23,8 @@ export interface Folder {
   parentId?: string
   // к какому разделу относится корень ветки: папки записей или папки шаблонов блоков
   scope?: 'records' | 'blocks'
+  // папка-раздел: показывается в первой строке наравне со стандартными разделами (Записи/Блоки/…)
+  section?: boolean
 }
 export interface EmotionSubItem {
   name: string
