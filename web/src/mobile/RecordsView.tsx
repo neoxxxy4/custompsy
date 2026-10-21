@@ -4,6 +4,7 @@ import {
   BookOpen,
   CalendarPlus,
   ChevronLeft,
+  ChevronRight,
   FileText,
   Folder as FolderIcon,
   FolderPlus,
@@ -233,6 +234,8 @@ export default function RecordsView({
     const f = folders.find((x) => x.id === id && x.section)
     setPath(f ? [f.id] : [])
     setAddRowOpen(null)
+    // редактор открыт инлайн — при смене раздела закрываем его
+    closeEditors()
   }
 
   // страховка: папку-раздел удалили, пока он был активен
@@ -315,8 +318,47 @@ export default function RecordsView({
     [folders, currentFolder, viewKind, scope], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
-  // папки текущего уровня: на корне раздела — вторая строка, глубже — третья
-  const foldersHere = path.length > baseLen ? subfolders : baseFolders
+  // ─── 3 статичные категории внутри папки: Все / Не сортировано / Папки ───
+  type FolderTab = 'all' | 'unsorted' | 'folders'
+  const [folderTab, setFolderTab] = useState<FolderTab>('all')
+  const drilled = path.length > baseLen
+  // при погружении/выходе всегда начинаем с «Все»
+  useEffect(() => setFolderTab('all'), [currentFolder])
+
+  // текущая папка + все потомки — для категории «Все»
+  const descendantIds = useMemo(() => {
+    const set = new Set<string>()
+    if (currentFolder) set.add(currentFolder)
+    let grew = true
+    while (grew) {
+      grew = false
+      folders.forEach((f) => {
+        if (f.parentId && set.has(f.parentId) && !set.has(f.id)) {
+          set.add(f.id)
+          grew = true
+        }
+      })
+    }
+    return set
+  }, [folders, currentFolder])
+
+  const notesAll = useMemo(
+    () => sortedNotes.filter((n) => descendantIds.has(normFolderId(n.folderId, folders) ?? '')),
+    [sortedNotes, folders, descendantIds],
+  )
+  const recsAll = useMemo(
+    () => sortedRecs.filter((r) => descendantIds.has(normFolderId(r.folderId, folders) ?? '')),
+    [sortedRecs, folders, descendantIds],
+  )
+
+  // редактор открыт инлайн: верх (разделы, папки, настройки) остаётся виден
+  const editorOpen = !!(openNoteId || openRecId || openTplId || openDiaryDate)
+  const closeEditors = () => {
+    setOpenNoteId(null)
+    setOpenRecId(null)
+    setOpenTplId(null)
+    setOpenDiaryDate(null)
+  }
 
   const diaryDays = useMemo(
     () =>
@@ -336,6 +378,10 @@ export default function RecordsView({
     () => sortedTemplates.filter((t) => normFolderId(t.folderId, folders) === currentFolder),
     [sortedTemplates, folders, currentFolder],
   )
+  const templatesAll = useMemo(
+    () => sortedTemplates.filter((t) => descendantIds.has(normFolderId(t.folderId, folders) ?? '')),
+    [sortedTemplates, folders, descendantIds],
+  )
 
   // ─── свайп разделов ───
   const onTouchStart = (e: React.TouchEvent) => {
@@ -346,6 +392,7 @@ export default function RecordsView({
     const dx = e.changedTouches[0].clientX - touchX.current
     touchX.current = null
     if (Math.abs(dx) < 60) return
+    if (editorOpen) return // в открытом редакторе свайп разделы не листает
     const order = [...SECTIONS.map((t) => t.id as string), ...customSections.map((f) => f.id)]
     const idx = order.indexOf(section)
     const next = dx < 0 ? idx + 1 : idx - 1
@@ -569,35 +616,59 @@ export default function RecordsView({
     />
   )
 
-  // строка папок-чипсов: 'base' — корневые папки раздела (вторая строка, всегда видна),
-  // 'sub' — третья линия при погружении: назад + цепочка ниже корня + подпапки текущего уровня;
-  // тап — внутрь, long-press — настройка папки; «+» в конце раскрывает «добавить папку»
-  const renderChipRow = (list: Folder[], rowKey: 'base' | 'sub') => {
-    const open = addRowOpen === rowKey
-    const parentForNew = rowKey === 'base' ? baseParent : currentFolder
+  // карточка шаблона блока: тап — редактор, «В день» — добавить в сегодня, ⋯ — меню
+  const renderTplCard = (t: BlockTemplate) => {
+    const itemsCount = t.items.length + t.lists.reduce((acc, l) => acc + l.items.length, 0)
+    return (
+      <div
+        key={t.id}
+        className="rounded-2xl p-3.5"
+        style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+      >
+        <div className="flex items-center gap-3">
+          <button onClick={() => setOpenTplId(t.id)} className="flex-1 min-w-0 flex items-center gap-3 text-left">
+            <Tile icon={Blocks} color="var(--accent)" size={40} />
+            <span className="flex-1 min-w-0">
+              <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--light)' }}>
+                {t.title || 'Без названия'}
+              </span>
+              <span className="block truncate mt-0.5" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {[
+                  itemsCount > 0 ? `${itemsCount} пунктов` : 'пусто',
+                  t.lists.length > 0 ? `${t.lists.length} списков` : '',
+                  t.withTime ? 'со временем' : '',
+                  t.inDashboard ? 'в дашборд' : '',
+                  folderTab === 'all' && drilled ? folderName(t.folderId) : '',
+                ].filter(Boolean).join(' · ')}
+              </span>
+            </span>
+          </button>
+          <button
+            onClick={() => addTemplateToDay(t)}
+            className="flex-none flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl"
+            style={{ background: 'var(--accent)', color: 'var(--on-fill)', fontSize: 12, fontWeight: 600 }}
+            title="Добавить в сегодня"
+          >
+            <CalendarPlus size={14} strokeWidth={2} />
+            В день
+          </button>
+          <button onClick={() => setTplMenu(t.id)} className="flex-none p-1" style={{ color: 'var(--muted)' }}>
+            <MoreHorizontal size={18} strokeWidth={1.8} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+
+  // вторая строка: корневые папки раздела (всегда видна, даже в редакторе);
+  // тап — внутрь (повторный тап по активной — обратно на корень), long-press — настройка папки;
+  // «+» в конце раскрывает «добавить папку»
+  const renderBaseRow = () => {
+    const open = addRowOpen === 'base'
     return (
       <div className="no-scrollbar -mx-4 px-4 mb-3 flex items-center gap-1.5 overflow-x-auto">
-        {rowKey === 'sub' && (
-          <button
-            onClick={() => setPath(path.slice(0, -1))}
-            className="flex-none grid place-items-center rounded-full"
-            style={{ width: 30, height: 30, background: 'var(--surface-2)', border: '1px solid var(--line)' }}
-            title="Назад"
-          >
-            <ChevronLeft size={15} strokeWidth={2} style={{ color: 'var(--muted)' }} />
-          </button>
-        )}
-        {rowKey === 'sub' &&
-          path.slice(baseLen + 1).map((fid, i, arr) => (
-            <FolderChip
-              key={`c-${fid}`}
-              label={folderName(fid)}
-              active={i === arr.length - 1}
-              onClick={() => setPath(path.slice(0, baseLen + 2 + i))}
-              onLongPress={() => setFolderMenu(fid)}
-            />
-          ))}
-        {list.map((f) =>
+        {baseFolders.map((f) =>
           renamingFolder === f.id ? (
             <input
               key={f.id}
@@ -617,17 +688,17 @@ export default function RecordsView({
             <FolderChip
               key={f.id}
               label={f.name}
-              active={rowKey === 'base' && path[baseLen] === f.id && path.length > baseLen}
+              active={path[baseLen] === f.id && path.length > baseLen}
               onClick={() => {
-                if (rowKey === 'base' && path[baseLen] === f.id) setPath(path.slice(0, baseLen))
-                else setPath([...path.slice(0, rowKey === 'base' ? baseLen : path.length), f.id])
+                if (path[baseLen] === f.id) setPath(path.slice(0, baseLen))
+                else setPath([...path.slice(0, baseLen), f.id])
               }}
               onLongPress={() => setFolderMenu(f.id)}
             />
           ),
         )}
         <button
-          onClick={() => setAddRowOpen(open ? null : rowKey)}
+          onClick={() => setAddRowOpen(open ? null : 'base')}
           className="flex-none grid place-items-center rounded-full"
           style={{ width: 30, height: 30, background: 'var(--surface)', border: '1px solid var(--line)' }}
           title={open ? 'Скрыть добавление' : 'Добавить папку'}
@@ -636,7 +707,7 @@ export default function RecordsView({
         </button>
         {open && (
           <button
-            onClick={() => { addFolder(parentForNew, scope); setAddRowOpen(null) }}
+            onClick={() => { addFolder(baseParent, scope); setAddRowOpen(null) }}
             className="flex-none flex items-center gap-1.5 rounded-full px-3 py-1.5 fadein"
             style={{ background: 'var(--accent)', color: 'var(--on-fill)', fontSize: 12.5, fontWeight: 600 }}
           >
@@ -646,6 +717,89 @@ export default function RecordsView({
       </div>
     )
   }
+
+  // третья линия при погружении: назад + цепочка от первой папки до текущей
+  const renderChainRow = () => (
+    <div className="no-scrollbar -mx-4 px-4 mb-3 flex items-center gap-1.5 overflow-x-auto">
+      <button
+        onClick={() => setPath(path.slice(0, -1))}
+        className="flex-none grid place-items-center rounded-full"
+        style={{ width: 30, height: 30, background: 'var(--surface-2)', border: '1px solid var(--line)' }}
+        title="Назад"
+      >
+        <ChevronLeft size={15} strokeWidth={2} style={{ color: 'var(--muted)' }} />
+      </button>
+      {path.slice(baseLen).map((fid, i, arr) => (
+        <FolderChip
+          key={`c-${fid}`}
+          label={folderName(fid)}
+          active={i === arr.length - 1}
+          onClick={() => setPath(path.slice(0, baseLen + 1 + i))}
+          onLongPress={() => setFolderMenu(fid)}
+        />
+      ))}
+    </div>
+  )
+
+  // 3 статичные категории внутри папки: Все / Не сортировано / Папки
+  const FOLDER_TABS: { id: 'all' | 'unsorted' | 'folders'; label: string }[] = [
+    { id: 'all', label: 'Все' },
+    { id: 'unsorted', label: 'Не сортировано' },
+    { id: 'folders', label: 'Папки' },
+  ]
+  const renderFolderTabs = () => (
+    <div className="flex gap-2 mb-3">
+      {FOLDER_TABS.map((t) => {
+        const active = folderTab === t.id
+        return (
+          <button
+            key={t.id}
+            onClick={() => setFolderTab(t.id)}
+            className="flex-none flex items-center gap-1.5 px-3.5 py-1.5 rounded-full transition-colors"
+            style={{
+              background: active ? 'var(--surface-2)' : 'transparent',
+              border: `1px solid ${active ? 'var(--line-strong)' : 'var(--line)'}`,
+              color: active ? 'var(--light)' : 'var(--muted)',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {t.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  // категория «Папки»: подпапки текущей — вертикальным столбиком, тап проваливает внутрь
+  const renderFolderColumn = () => (
+    <div className="space-y-2">
+      {subfolders.length === 0 && <Empty text="Нет подпапок — добавь первую ниже" />}
+      {subfolders.map((f) => (
+        <FolderColRow
+          key={f.id}
+          folder={f}
+          count={
+            viewKind === 'blocks'
+              ? templates.filter((t) => normFolderId(t.folderId, folders) === f.id).length
+              : notes.filter((n) => normFolderId(n.folderId, folders) === f.id).length +
+                listrecs.filter((r) => normFolderId(r.folderId, folders) === f.id).length
+          }
+          renaming={renamingFolder === f.id}
+          onRename={(name) => { renameFolder(f.id, name); setRenamingFolder(null) }}
+          onClick={() => setPath([...path, f.id])}
+          onLongPress={() => setFolderMenu(f.id)}
+        />
+      ))}
+      <button
+        onClick={() => addFolder(currentFolder, scope)}
+        className="mt-1 flex w-full items-center gap-2 rounded-xl border border-dashed px-3 py-2"
+        style={{ borderColor: 'var(--line-strong)', color: 'var(--muted)', fontSize: 13 }}
+      >
+        <FolderPlus size={14} strokeWidth={1.8} /> добавить папку
+      </button>
+    </div>
+  )
 
   return (
     <div className="px-4 pt-3 pb-36 min-h-screen">
@@ -730,78 +884,84 @@ export default function RecordsView({
         {/* ─── Записи: строки папок + содержимое текущей папки ─── */}
         {viewKind === 'records' && (
           <>
-            {renderChipRow(baseFolders, 'base')}
-            {path.length > baseLen && renderChipRow(subfolders, 'sub')}
+            {renderBaseRow()}
+            {drilled && renderChainRow()}
+            {drilled && !editorOpen && renderFolderTabs()}
 
-            <div className="space-y-2.5">
-              {foldersHere.length === 0 && notesHere.length === 0 && recsHere.length === 0 && (
-                <Empty text={currentFolder ? 'Папка пустая — добавь через +' : 'Пока пусто — создай запись или папку через +'} />
-              )}
-
-              {notesHere.map(renderNoteRow)}
-              {recsHere.map(renderRecCard)}
-            </div>
+            {!editorOpen && (
+              <div className="space-y-2.5">
+                {!drilled && (
+                  <>
+                    {baseFolders.length === 0 && notesHere.length === 0 && recsHere.length === 0 && (
+                      <Empty text="Пока пусто — создай запись или папку через +" />
+                    )}
+                    {notesHere.map(renderNoteRow)}
+                    {recsHere.map(renderRecCard)}
+                  </>
+                )}
+                {drilled && folderTab === 'all' && (
+                  <>
+                    {notesAll.length === 0 && recsAll.length === 0 && subfolders.length === 0 && (
+                      <Empty text="В папке и подпапках пусто — добавь через +" />
+                    )}
+                    {notesAll.map(renderNoteRow)}
+                    {recsAll.map(renderRecCard)}
+                  </>
+                )}
+                {drilled && folderTab === 'unsorted' && (
+                  <>
+                    {notesHere.length === 0 && recsHere.length === 0 && (
+                      <Empty text="Прямо в этой папке пусто" />
+                    )}
+                    {notesHere.map(renderNoteRow)}
+                    {recsHere.map(renderRecCard)}
+                  </>
+                )}
+                {drilled && folderTab === 'folders' && renderFolderColumn()}
+              </div>
+            )}
           </>
         )}
 
         {/* ─── Блоки: папки с шаблонами для добавления в день ─── */}
         {viewKind === 'blocks' && (
           <>
-            {renderChipRow(baseFolders, 'base')}
-            {path.length > baseLen && renderChipRow(subfolders, 'sub')}
+            {renderBaseRow()}
+            {drilled && renderChainRow()}
+            {drilled && !editorOpen && renderFolderTabs()}
 
-            <div className="space-y-2.5">
-              {foldersHere.length === 0 && templatesHere.length === 0 && (
-                <Empty text={currentFolder ? 'Папка пустая — создай шаблон через +' : 'Нет шаблонов — создай первый через +'} />
-              )}
-
-              {templatesHere.map((t) => {
-                const itemsCount = t.items.length + t.lists.reduce((acc, l) => acc + l.items.length, 0)
-                return (
-                  <div
-                    key={t.id}
-                    className="rounded-2xl p-3.5"
-                    style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
-                  >
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => setOpenTplId(t.id)} className="flex-1 min-w-0 flex items-center gap-3 text-left">
-                        <Tile icon={Blocks} color="var(--accent)" size={40} />
-                        <span className="flex-1 min-w-0">
-                          <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--light)' }}>
-                            {t.title || 'Без названия'}
-                          </span>
-                          <span className="block truncate mt-0.5" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                            {[
-                              itemsCount > 0 ? `${itemsCount} пунктов` : 'пусто',
-                              t.lists.length > 0 ? `${t.lists.length} списков` : '',
-                              t.withTime ? 'со временем' : '',
-                              t.inDashboard ? 'в дашборд' : '',
-                            ].filter(Boolean).join(' · ')}
-                          </span>
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => addTemplateToDay(t)}
-                        className="flex-none flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl"
-                        style={{ background: 'var(--accent)', color: 'var(--on-fill)', fontSize: 12, fontWeight: 600 }}
-                        title="Добавить в сегодня"
-                      >
-                        <CalendarPlus size={14} strokeWidth={2} />
-                        В день
-                      </button>
-                      <button onClick={() => setTplMenu(t.id)} className="flex-none p-1" style={{ color: 'var(--muted)' }}>
-                        <MoreHorizontal size={18} strokeWidth={1.8} />
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+            {!editorOpen && (
+              <div className="space-y-2.5">
+                {!drilled && (
+                  <>
+                    {baseFolders.length === 0 && templatesHere.length === 0 && (
+                      <Empty text="Нет шаблонов — создай первый через +" />
+                    )}
+                    {templatesHere.map(renderTplCard)}
+                  </>
+                )}
+                {drilled && folderTab === 'all' && (
+                  <>
+                    {templatesAll.length === 0 && subfolders.length === 0 && (
+                      <Empty text="В папке и подпапках пусто — создай шаблон через +" />
+                    )}
+                    {templatesAll.map(renderTplCard)}
+                  </>
+                )}
+                {drilled && folderTab === 'unsorted' && (
+                  <>
+                    {templatesHere.length === 0 && <Empty text="Прямо в этой папке пусто" />}
+                    {templatesHere.map(renderTplCard)}
+                  </>
+                )}
+                {drilled && folderTab === 'folders' && renderFolderColumn()}
+              </div>
+            )}
           </>
         )}
 
         {/* ─── Психика: терапия + дневник эмоций ─── */}
-        {viewKind === 'psyche' && (
+        {viewKind === 'psyche' && !editorOpen && (
           <>
             <div className="flex gap-2 mb-4">
               {PSYCHE_TABS.map((t) => {
@@ -845,15 +1005,206 @@ export default function RecordsView({
         )}
 
         {/* ─── Дневник ─── */}
-        {viewKind === 'diary' && (
+        {viewKind === 'diary' && !editorOpen && (
           <div className="space-y-2.5">
             {diaryDays.length === 0 && <Empty text="Нет записей — напиши первую через +" />}
             {diaryDays.map(renderDiaryRow)}
           </div>
         )}
+
+        {/* ─── редакторы инлайн: верх (разделы, папки, настройки) остаётся виден ─── */}
+        {editorOpen && (
+          <div className="fadein">
+            {openNote && (
+              <Immersion
+                inline
+                title={openNote.title || 'Заметка'}
+                onBack={() => setOpenNoteId(null)}
+                onHome={onHome}
+                onMic={() => toast.show('Скоро')}
+                menu={[
+                  { label: openNote.pinned ? 'Открепить' : 'Закрепить', icon: Star, onClick: () => patchNote(openNote.id, { pinned: !openNote.pinned }) },
+                  { label: 'Поделиться', icon: Share2, onClick: () => toast.show('Скоро') },
+                  {
+                    label: 'Удалить', icon: Trash2,
+                    onClick: () => {
+                      if (window.confirm('Удалить заметку?')) {
+                        setNotes((ns) => ns.filter((n) => n.id !== openNote.id))
+                        setOpenNoteId(null)
+                      }
+                    },
+                  },
+                ]}
+              >
+                <div className="px-5 py-4">
+                  <input
+                    value={openNote.title}
+                    onChange={(e) => patchNote(openNote.id, { title: e.target.value })}
+                    placeholder="Заголовок"
+                    className="w-full bg-transparent outline-none"
+                    style={{ fontFamily: 'var(--font-body)', fontSize: 22, fontWeight: 700, color: 'var(--light)' }}
+                  />
+                  <p className="mt-1 mb-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    {fmtWhen(openNote.updated)} · {folderName(openNote.folderId)}
+                  </p>
+                  <textarea
+                    value={openNote.body}
+                    onChange={(e) => patchNote(openNote.id, { body: e.target.value })}
+                    placeholder="Текст заметки…"
+                    className="w-full bg-transparent outline-none resize-none"
+                    style={{ fontFamily: 'var(--font-body)', fontSize: 15, lineHeight: 1.65, color: 'var(--text-2)', minHeight: 320 }}
+                  />
+                  <button
+                    onClick={() => patchNote(openNote.id, { therapy: !openNote.therapy })}
+                    className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+                    style={{
+                      background: openNote.therapy ? 'var(--accent)' : 'var(--surface-2)',
+                      color: openNote.therapy ? 'var(--on-fill)' : 'var(--muted)',
+                      border: '1px solid var(--line)',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <Stethoscope size={13} strokeWidth={1.8} /> {openNote.therapy ? 'Терапия' : 'Отметить как терапию'}
+                  </button>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-3">
+                    <EmotionChips tags={openNote.emotions} onClick={(tag) => openEmotionSheet('note', openNote.id, tag)} />
+                    <button
+                      onClick={() => openEmotionSheet('note', openNote.id)}
+                      className="flex items-center gap-1 px-2 py-1 rounded-full"
+                      style={{ background: 'var(--surface-2)', border: '1px dashed var(--line-strong)', fontSize: 11, color: 'var(--muted)' }}
+                    >
+                      <SmilePlus size={12} strokeWidth={1.8} /> эмоция
+                    </button>
+                  </div>
+                </div>
+              </Immersion>
+            )}
+
+            {openRec && (
+              <ListRecordEditor
+                inline
+                rec={openRec}
+                onBack={() => setOpenRecId(null)}
+                onHome={onHome}
+                onMic={() => toast.show('Скоро')}
+                onPatch={(patch) => patchRec(openRec.id, patch)}
+                onDelete={() => {
+                  setListrecs((rs) => rs.filter((r) => r.id !== openRec.id))
+                  setOpenRecId(null)
+                }}
+              />
+            )}
+
+            {openTpl && (
+              <TemplateEditor
+                inline
+                tpl={openTpl}
+                onBack={() => setOpenTplId(null)}
+                onHome={onHome}
+                onPatch={(patch) => patchTpl(openTpl.id, patch)}
+                onAddToDay={() => addTemplateToDay(openTpl)}
+                onDelete={() => {
+                  setTemplates((ts) => ts.filter((t) => t.id !== openTpl.id))
+                  setOpenTplId(null)
+                }}
+              />
+            )}
+
+            {openDiaryDate && (
+              <Immersion
+                inline
+                title={`Дневник · ${diaryLabel(openDiaryDate)}`}
+                onBack={() => setOpenDiaryDate(null)}
+                onHome={onHome}
+                onMic={() => toast.show('Скоро')}
+                menu={[
+                  {
+                    label: 'Удалить запись', icon: Trash2,
+                    onClick: () => {
+                      if (window.confirm('Удалить запись дневника?')) {
+                        setDiary((d) => {
+                          const next = { ...d }
+                          delete next[openDiaryDate]
+                          return next
+                        })
+                        setOpenDiaryDate(null)
+                      }
+                    },
+                  },
+                ]}
+              >
+                <div className="px-5 py-4">
+                  <textarea
+                    value={diaryEntry(openDiaryDate).text}
+                    onChange={(e) => patchDiary(openDiaryDate, { text: e.target.value })}
+                    placeholder="Как прошёл день?"
+                    className="w-full bg-transparent outline-none resize-none"
+                    style={{ fontFamily: 'var(--font-body)', fontSize: 15.5, lineHeight: 1.7, color: 'var(--text-2)', minHeight: 300 }}
+                  />
+                  <input
+                    value={diaryEntry(openDiaryDate).emotion}
+                    onChange={(e) => patchDiary(openDiaryDate, { emotion: e.target.value })}
+                    placeholder="эмоция дня"
+                    className="mt-2 bg-transparent outline-none px-3.5 py-1.5 rounded-full"
+                    style={{ border: '1px solid var(--accent)', color: 'var(--accent)', fontSize: 13, width: 180 }}
+                  />
+                  <button
+                    onClick={() => patchDiary(openDiaryDate, { therapy: !diaryEntry(openDiaryDate).therapy })}
+                    className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+                    style={{
+                      background: diaryEntry(openDiaryDate).therapy ? 'var(--accent)' : 'var(--surface-2)',
+                      color: diaryEntry(openDiaryDate).therapy ? 'var(--on-fill)' : 'var(--muted)',
+                      border: '1px solid var(--line)',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <Stethoscope size={13} strokeWidth={1.8} /> {diaryEntry(openDiaryDate).therapy ? 'Терапия' : 'Отметить как терапию'}
+                  </button>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-3">
+                    <EmotionChips
+                      tags={diaryEntry(openDiaryDate).emotions}
+                      onClick={(tag) => openEmotionSheet('diary', openDiaryDate, tag)}
+                    />
+                    <button
+                      onClick={() => openEmotionSheet('diary', openDiaryDate)}
+                      className="flex items-center gap-1 px-2 py-1 rounded-full"
+                      style={{ background: 'var(--surface-2)', border: '1px dashed var(--line-strong)', fontSize: 11, color: 'var(--muted)' }}
+                    >
+                      <SmilePlus size={12} strokeWidth={1.8} /> эмоция
+                    </button>
+                  </div>
+                  <div className="mt-6 pb-16">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="mono-label">Фокус</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--accent)' }}>
+                        {diaryEntry(openDiaryDate).focus}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>0</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={10}
+                        value={diaryEntry(openDiaryDate).focus}
+                        className="force-slider flex-1"
+                        style={{ ['--slider-color' as string]: 'var(--accent)' }}
+                        onChange={(e) => patchDiary(openDiaryDate, { focus: Number(e.target.value) })}
+                      />
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>10</span>
+                    </div>
+                  </div>
+                </div>
+              </Immersion>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* FAB */}
+      {/* FAB — скрыт, пока открыт инлайн-редактор */}
+      {!editorOpen && (
       <button
         onClick={onFab}
         className="fixed right-4 z-40 grid place-items-center rounded-full"
@@ -868,9 +1219,10 @@ export default function RecordsView({
       >
         <Plus size={24} strokeWidth={2} />
       </button>
+      )}
 
       {/* меню FAB на «Записях» */}
-      {fabMenu && (
+      {fabMenu && !editorOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setFabMenu(false)} />
           <div
@@ -955,102 +1307,6 @@ export default function RecordsView({
         />
       )}
 
-      {/* погружение: заметка */}
-      {openNote && (
-        <Immersion
-          title={openNote.title || 'Заметка'}
-          onBack={() => setOpenNoteId(null)}
-          onHome={onHome}
-          onMic={() => toast.show('Скоро')}
-          menu={[
-            { label: openNote.pinned ? 'Открепить' : 'Закрепить', icon: Star, onClick: () => patchNote(openNote.id, { pinned: !openNote.pinned }) },
-            { label: 'Поделиться', icon: Share2, onClick: () => toast.show('Скоро') },
-            {
-              label: 'Удалить', icon: Trash2,
-              onClick: () => {
-                if (window.confirm('Удалить заметку?')) {
-                  setNotes((ns) => ns.filter((n) => n.id !== openNote.id))
-                  setOpenNoteId(null)
-                }
-              },
-            },
-          ]}
-        >
-          <div className="px-5 py-4">
-            <input
-              value={openNote.title}
-              onChange={(e) => patchNote(openNote.id, { title: e.target.value })}
-              placeholder="Заголовок"
-              className="w-full bg-transparent outline-none"
-              style={{ fontFamily: 'var(--font-body)', fontSize: 22, fontWeight: 700, color: 'var(--light)' }}
-            />
-            <p className="mt-1 mb-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
-              {fmtWhen(openNote.updated)} · {folderName(openNote.folderId)}
-            </p>
-            <textarea
-              value={openNote.body}
-              onChange={(e) => patchNote(openNote.id, { body: e.target.value })}
-              placeholder="Текст заметки…"
-              className="w-full bg-transparent outline-none resize-none"
-              style={{ fontFamily: 'var(--font-body)', fontSize: 15, lineHeight: 1.65, color: 'var(--text-2)', minHeight: 320 }}
-            />
-            <button
-              onClick={() => patchNote(openNote.id, { therapy: !openNote.therapy })}
-              className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-              style={{
-                background: openNote.therapy ? 'var(--accent)' : 'var(--surface-2)',
-                color: openNote.therapy ? 'var(--on-fill)' : 'var(--muted)',
-                border: '1px solid var(--line)',
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
-              <Stethoscope size={13} strokeWidth={1.8} /> {openNote.therapy ? 'Терапия' : 'Отметить как терапию'}
-            </button>
-            <div className="flex flex-wrap items-center gap-1.5 mt-3">
-              <EmotionChips tags={openNote.emotions} onClick={(tag) => openEmotionSheet('note', openNote.id, tag)} />
-              <button
-                onClick={() => openEmotionSheet('note', openNote.id)}
-                className="flex items-center gap-1 px-2 py-1 rounded-full"
-                style={{ background: 'var(--surface-2)', border: '1px dashed var(--line-strong)', fontSize: 11, color: 'var(--muted)' }}
-              >
-                <SmilePlus size={12} strokeWidth={1.8} /> эмоция
-              </button>
-            </div>
-          </div>
-        </Immersion>
-      )}
-
-      {/* погружение: чек-лист / список */}
-      {openRec && (
-        <ListRecordEditor
-          rec={openRec}
-          onBack={() => setOpenRecId(null)}
-          onHome={onHome}
-          onMic={() => toast.show('Скоро')}
-          onPatch={(patch) => patchRec(openRec.id, patch)}
-          onDelete={() => {
-            setListrecs((rs) => rs.filter((r) => r.id !== openRec.id))
-            setOpenRecId(null)
-          }}
-        />
-      )}
-
-      {/* погружение: шаблон блока */}
-      {openTpl && (
-        <TemplateEditor
-          tpl={openTpl}
-          onBack={() => setOpenTplId(null)}
-          onHome={onHome}
-          onPatch={(patch) => patchTpl(openTpl.id, patch)}
-          onAddToDay={() => addTemplateToDay(openTpl)}
-          onDelete={() => {
-            setTemplates((ts) => ts.filter((t) => t.id !== openTpl.id))
-            setOpenTplId(null)
-          }}
-        />
-      )}
-
       {/* шторка эмоций */}
       {emotionSheet.open && (
         <EmotionTagSheet
@@ -1068,95 +1324,6 @@ export default function RecordsView({
               : undefined
           }
         />
-      )}
-
-      {/* погружение: дневник */}
-      {openDiaryDate && (
-        <Immersion
-          title={`Дневник · ${diaryLabel(openDiaryDate)}`}
-          onBack={() => setOpenDiaryDate(null)}
-          onHome={onHome}
-          onMic={() => toast.show('Скоро')}
-          menu={[
-            {
-              label: 'Удалить запись', icon: Trash2,
-              onClick: () => {
-                if (window.confirm('Удалить запись дневника?')) {
-                  setDiary((d) => {
-                    const next = { ...d }
-                    delete next[openDiaryDate]
-                    return next
-                  })
-                  setOpenDiaryDate(null)
-                }
-              },
-            },
-          ]}
-        >
-          <div className="px-5 py-4">
-            <textarea
-              value={diaryEntry(openDiaryDate).text}
-              onChange={(e) => patchDiary(openDiaryDate, { text: e.target.value })}
-              placeholder="Как прошёл день?"
-              className="w-full bg-transparent outline-none resize-none"
-              style={{ fontFamily: 'var(--font-body)', fontSize: 15.5, lineHeight: 1.7, color: 'var(--text-2)', minHeight: 300 }}
-            />
-            <input
-              value={diaryEntry(openDiaryDate).emotion}
-              onChange={(e) => patchDiary(openDiaryDate, { emotion: e.target.value })}
-              placeholder="эмоция дня"
-              className="mt-2 bg-transparent outline-none px-3.5 py-1.5 rounded-full"
-              style={{ border: '1px solid var(--accent)', color: 'var(--accent)', fontSize: 13, width: 180 }}
-            />
-            <button
-              onClick={() => patchDiary(openDiaryDate, { therapy: !diaryEntry(openDiaryDate).therapy })}
-              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-              style={{
-                background: diaryEntry(openDiaryDate).therapy ? 'var(--accent)' : 'var(--surface-2)',
-                color: diaryEntry(openDiaryDate).therapy ? 'var(--on-fill)' : 'var(--muted)',
-                border: '1px solid var(--line)',
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
-              <Stethoscope size={13} strokeWidth={1.8} /> {diaryEntry(openDiaryDate).therapy ? 'Терапия' : 'Отметить как терапию'}
-            </button>
-            <div className="flex flex-wrap items-center gap-1.5 mt-3">
-              <EmotionChips
-                tags={diaryEntry(openDiaryDate).emotions}
-                onClick={(tag) => openEmotionSheet('diary', openDiaryDate, tag)}
-              />
-              <button
-                onClick={() => openEmotionSheet('diary', openDiaryDate)}
-                className="flex items-center gap-1 px-2 py-1 rounded-full"
-                style={{ background: 'var(--surface-2)', border: '1px dashed var(--line-strong)', fontSize: 11, color: 'var(--muted)' }}
-              >
-                <SmilePlus size={12} strokeWidth={1.8} /> эмоция
-              </button>
-            </div>
-            <div className="mt-6 pb-16">
-              <div className="flex items-center justify-between mb-2">
-                <span className="mono-label">Фокус</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--accent)' }}>
-                  {diaryEntry(openDiaryDate).focus}
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>0</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={10}
-                  value={diaryEntry(openDiaryDate).focus}
-                  className="force-slider flex-1"
-                  style={{ ['--slider-color' as string]: 'var(--accent)' }}
-                  onChange={(e) => patchDiary(openDiaryDate, { focus: Number(e.target.value) })}
-                />
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>10</span>
-              </div>
-            </div>
-          </div>
-        </Immersion>
       )}
 
       {toast.node}
@@ -1239,7 +1406,76 @@ function FolderChip({
   )
 }
 
-// ─── настройка папок: дерево с подпапками, drag-перестановка, переименование ───
+// строка папки в вертикальном столбике (категория «Папки» внутри папки):
+// тап — провалиться внутрь, long-press (~450ms) — настройка; справа счётчик записей и ›
+function FolderColRow({
+  folder,
+  count,
+  renaming,
+  onRename,
+  onClick,
+  onLongPress,
+}: {
+  folder: Folder
+  count: number
+  renaming: boolean
+  onRename: (name: string) => void
+  onClick: () => void
+  onLongPress: () => void
+}) {
+  const timer = useRef<number | undefined>(undefined)
+  const fired = useRef(false)
+  const start = () => {
+    fired.current = false
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => {
+      fired.current = true
+      onLongPress()
+    }, 450)
+  }
+  const cancel = () => window.clearTimeout(timer.current)
+  if (renaming) {
+    return (
+      <input
+        autoFocus
+        defaultValue={folder.name}
+        onBlur={(e) => onRename(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === 'Escape') onRename((e.target as HTMLInputElement).value)
+        }}
+        className="w-full rounded-2xl px-3.5 py-3 outline-none"
+        style={{ background: 'var(--surface)', border: '1px solid var(--accent)', fontSize: 14, fontWeight: 600, color: 'var(--light)' }}
+      />
+    )
+  }
+  return (
+    <button
+      onTouchStart={start}
+      onTouchEnd={cancel}
+      onTouchMove={cancel}
+      onTouchCancel={cancel}
+      onMouseDown={start}
+      onMouseUp={cancel}
+      onMouseLeave={cancel}
+      onClick={() => {
+        if (fired.current) {
+          fired.current = false
+          return
+        }
+        onClick()
+      }}
+      className="w-full flex items-center gap-3 rounded-2xl px-3.5 py-3 text-left"
+      style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+    >
+      <FolderIcon size={16} strokeWidth={1.8} style={{ color: 'var(--f-environment)', flex: 'none' }} />
+      <span className="flex-1 min-w-0 truncate" style={{ fontSize: 14, fontWeight: 600, color: 'var(--light)' }}>
+        {folder.name}
+      </span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{count || ''}</span>
+      <ChevronRight size={16} strokeWidth={1.8} style={{ color: 'var(--muted)', flex: 'none' }} />
+    </button>
+  )
+}
 function FolderSettings({
   folders,
   setFolders,
@@ -1443,6 +1679,7 @@ function TemplateEditor({
   onPatch,
   onAddToDay,
   onDelete,
+  inline,
 }: {
   tpl: BlockTemplate
   onBack: () => void
@@ -1450,6 +1687,7 @@ function TemplateEditor({
   onPatch: (patch: Partial<BlockTemplate>) => void
   onAddToDay: () => void
   onDelete: () => void
+  inline?: boolean // инлайн-режим: верхняя навигация Записей остаётся видна
 }) {
   const [editItemId, setEditItemId] = useState<string | null>(null)
   // состав блока — как в меню блока «Прогресса»; у старых шаблонов поля нет → всё разрешено
@@ -1491,6 +1729,7 @@ function TemplateEditor({
       onBack={onBack}
       onHome={onHome}
       onMic={() => {}}
+      inline={inline}
       menu={[
         { label: 'Добавить в сегодня', icon: CalendarPlus, onClick: onAddToDay },
         { label: 'Удалить шаблон', icon: Trash2, onClick: onDelete },

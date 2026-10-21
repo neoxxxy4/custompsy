@@ -24,6 +24,7 @@ export default function ListRecordEditor({
   onMic,
   onPatch,
   onDelete,
+  inline,
 }: {
   rec: ListRecord
   onBack: () => void
@@ -31,6 +32,7 @@ export default function ListRecordEditor({
   onMic: () => void
   onPatch: (patch: Partial<ListRecord>) => void
   onDelete: () => void
+  inline?: boolean // инлайн-режим: верхняя навигация Записей остаётся видна
 }) {
   const [editItemId, setEditItemId] = useState<string | null>(null)
   const [sheet, setSheet] = useState<{ itemId: string; title: string } | null>(null)
@@ -59,6 +61,7 @@ export default function ListRecordEditor({
       onBack={onBack}
       onHome={onHome}
       onMic={onMic}
+      inline={inline}
       menu={[{ label: 'Удалить запись', icon: Trash2, onClick: () => setConfirming(true) }]}
     >
       <div className="px-5 py-4">
