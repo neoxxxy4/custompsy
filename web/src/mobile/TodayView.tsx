@@ -705,17 +705,21 @@ export default function TodayView() {
               hideDone={hide}
             />
           )}
-          {!readOnly && def.allow.items && (
-            <AddRow label="добавить пункт" onClick={() => addItem(def)} />
-          )}
-          {!readOnly && def.allow.sub && (
-            <AddRow label="добавить подблок" onClick={() => addSubBlock(def.id, null)} />
-          )}
-          {!readOnly && def.allow.checklists && (
-            <AddRow label="добавить чек-лист" onClick={() => setPickList({ def, kind: 'checklist' })} />
-          )}
-          {!readOnly && def.allow.lists && (
-            <AddRow label="добавить список" onClick={() => setPickList({ def, kind: 'list' })} />
+          {!readOnly && (def.allow.items || def.allow.sub || def.allow.checklists || def.allow.lists) && (
+            <AddBar>
+              {def.allow.items && (
+                <AddRow label="добавить пункт" onClick={() => addItem(def)} />
+              )}
+              {def.allow.sub && (
+                <AddRow label="добавить подблок" onClick={() => addSubBlock(def.id, null)} />
+              )}
+              {def.allow.checklists && (
+                <AddRow label="добавить чек-лист" onClick={() => setPickList({ def, kind: 'checklist' })} />
+              )}
+              {def.allow.lists && (
+                <AddRow label="добавить список" onClick={() => setPickList({ def, kind: 'list' })} />
+              )}
+            </AddBar>
           )}
         </BlockShell>
       </div>
@@ -1343,13 +1347,15 @@ function BlockLists({
                 />
               )}
               {!readOnly && (
-                <button
-                  onClick={() => onAddSubList(lst.id)}
-                  className="mb-1 flex items-center gap-1.5 rounded-lg px-2 py-1"
-                  style={{ color: 'var(--muted)', fontSize: 12 }}
-                >
-                  <Plus size={12} strokeWidth={1.8} /> добавить подблок
-                </button>
+                <AddBar>
+                  <button
+                    onClick={() => onAddSubList(lst.id)}
+                    className="mb-1 flex items-center gap-1.5 rounded-lg px-2 py-1"
+                    style={{ color: 'var(--muted)', fontSize: 12 }}
+                  >
+                    <Plus size={12} strokeWidth={1.8} /> добавить подблок
+                  </button>
+                </AddBar>
               )}
             </>
           )
@@ -1436,13 +1442,15 @@ function BlockLists({
               />
             )}
             {!readOnly && expanded && (
-              <button
-                onClick={() => onAddListItem(lst.id)}
-                className="mb-1 ml-11 flex items-center gap-1.5 rounded-lg px-2 py-1"
-                style={{ color: 'var(--muted)', fontSize: 12 }}
-              >
-                <Plus size={12} strokeWidth={1.8} /> добавить пункт
-              </button>
+              <AddBar>
+                <button
+                  onClick={() => onAddListItem(lst.id)}
+                  className="mb-1 ml-11 flex items-center gap-1.5 rounded-lg px-2 py-1"
+                  style={{ color: 'var(--muted)', fontSize: 12 }}
+                >
+                  <Plus size={12} strokeWidth={1.8} /> добавить пункт
+                </button>
+              </AddBar>
             )}
           </div>
         )
@@ -1834,6 +1842,32 @@ function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
     >
       <Plus size={14} strokeWidth={1.8} /> {label}
     </button>
+  )
+}
+
+// кнопки добавления скрыты за полосочкой внизу (как кольца в дашборде):
+// тап по полоске раскрывает/закрывает панель добавления
+function AddBar({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <div
+        className="grid transition-[grid-template-rows] duration-300"
+        style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
+      >
+        <div className="overflow-hidden">{children}</div>
+      </div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="mt-1 w-full grid place-items-center py-1"
+        title={open ? 'Скрыть добавление' : 'Добавить'}
+      >
+        <span
+          className="w-10 h-1 rounded-full transition-colors"
+          style={{ background: open ? 'var(--accent)' : 'var(--line-strong)' }}
+        />
+      </button>
+    </>
   )
 }
 
