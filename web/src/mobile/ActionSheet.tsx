@@ -47,7 +47,7 @@ export default function ActionSheet({
   const open = mounted && !exiting
 
   return (
-    <div className="fixed inset-0 z-[60]">
+    <div className="fixed inset-0 z-[80]">
       <div
         onClick={close}
         className="absolute inset-0 transition-opacity"

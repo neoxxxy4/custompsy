@@ -172,6 +172,7 @@ export default function SettingsView({
   }
 
   const removeBottomTab = (id: BottomTabId) => {
+    if (id === 'settings') return // настройки — постоянная вкладка
     if (tabs.length <= 1) return
     updateTabs(tabs.filter((t) => t.id !== id))
   }
@@ -339,14 +340,16 @@ export default function SettingsView({
                   <Icon size={14} strokeWidth={1.8} style={{ color: 'var(--muted)' }} />
                   {t.label}
                 </span>
-                <button
-                  onClick={() => removeBottomTab(t.id)}
-                  disabled={tabs.length <= 1}
-                  className="p-1"
-                  style={{ color: tabs.length <= 1 ? 'var(--line-strong)' : 'var(--muted)' }}
-                >
-                  <X size={14} strokeWidth={1.8} />
-                </button>
+                {t.id !== 'settings' && (
+                  <button
+                    onClick={() => removeBottomTab(t.id)}
+                    disabled={tabs.length <= 1}
+                    className="p-1"
+                    style={{ color: tabs.length <= 1 ? 'var(--line-strong)' : 'var(--muted)' }}
+                  >
+                    <X size={14} strokeWidth={1.8} />
+                  </button>
+                )}
               </div>
             )
           })}

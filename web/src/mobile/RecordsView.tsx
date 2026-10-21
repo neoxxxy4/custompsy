@@ -197,6 +197,7 @@ export default function RecordsView({
   const [openTplId, setOpenTplId] = useState<string | null>(null)
   const [fabMenu, setFabMenu] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [folderAddOpen, setFolderAddOpen] = useState(false)
   const [folderMenu, setFolderMenu] = useState<string | null>(null)
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null)
   const [tplMenu, setTplMenu] = useState<string | null>(null)
@@ -215,15 +216,6 @@ export default function RecordsView({
   const subfoldersOf = (pid: string | null, scope: 'records' | 'blocks') =>
     folders.filter((f) => normFolderId(f.parentId, folders) === pid && scopeOf(f, folders) === scope)
 
-  const folderCounts = (fid: string, scope: 'records' | 'blocks') => {
-    if (scope === 'blocks') {
-      return { t: templates.filter((x) => normFolderId(x.folderId, folders) === fid).length, n: 0, r: 0 }
-    }
-    const n = notes.filter((x) => normFolderId(x.folderId, folders) === fid).length
-    const r = listrecs.filter((x) => normFolderId(x.folderId, folders) === fid).length
-    return { n, r, t: 0 }
-  }
-
   const addFolder = (parentId: string | null, scope: 'records' | 'blocks') => {
     const parent = parentId ? folders.find((f) => f.id === parentId) : undefined
     const f: Folder = {
@@ -239,6 +231,14 @@ export default function RecordsView({
   const renameFolder = (fid: string, name: string) => {
     if (!name.trim()) return
     setFolders((fs) => fs.map((f) => (f.id === fid ? { ...f, name: name.trim() } : f)))
+  }
+
+  // подпапка из меню папки: создаём и заходим внутрь родителя, чтобы сразу её видеть
+  const onAddSubfolder = (fid: string) => {
+    const parent = folders.find((f) => f.id === fid)
+    if (!parent) return
+    addFolder(fid, scopeOf(parent, folders))
+    if (!settingsOpen) setPath((p) => (p.includes(fid) ? p : [...p, fid]))
   }
 
   const deleteFolder = (fid: string) => {
@@ -558,35 +558,54 @@ export default function RecordsView({
     </div>
   )
 
-  // строка папки в текущем разделе
-  const renderFolderRow = (f: Folder) => {
-    const scope = section === 'blocks' ? 'blocks' : 'records'
-    const c = folderCounts(f.id, scope)
-    const subs = subfoldersOf(f.id, scope).length
-    const sub = scope === 'blocks'
-      ? [subs > 0 ? `${subs} папок` : '', c.t > 0 ? `${c.t} блоков` : ''].filter(Boolean).join(' · ') || 'пусто'
-      : [subs > 0 ? `${subs} папок` : '', c.n > 0 ? `${c.n} заметок` : '', c.r > 0 ? `${c.r} списков` : '']
-          .filter(Boolean).join(' · ') || 'пусто'
-    return (
+  // папки текущего уровня — горизонтальной строкой чипсов: тап — внутрь,
+  // long-press — настройка папки; «+» в конце раскрывает кнопку «добавить папку»
+  const renderFolderChips = (scope: 'records' | 'blocks') => (
+    <div className="no-scrollbar -mx-4 px-4 mb-3 flex items-center gap-1.5 overflow-x-auto">
+      {subfolders.map((f) =>
+        renamingFolder === f.id ? (
+          <input
+            key={f.id}
+            autoFocus
+            defaultValue={f.name}
+            onBlur={(e) => { renameFolder(f.id, e.target.value); setRenamingFolder(null) }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === 'Escape') {
+                renameFolder(f.id, (e.target as HTMLInputElement).value)
+                setRenamingFolder(null)
+              }
+            }}
+            className="flex-none rounded-full px-3 py-1.5 outline-none"
+            style={{ background: 'var(--surface)', border: '1px solid var(--accent)', fontSize: 12.5, fontWeight: 600, color: 'var(--light)', width: 120 }}
+          />
+        ) : (
+          <FolderChip
+            key={f.id}
+            label={f.name}
+            onClick={() => setPath([...path, f.id])}
+            onLongPress={() => setFolderMenu(f.id)}
+          />
+        ),
+      )}
       <button
-        key={f.id}
-        onClick={() => setPath([...path, f.id])}
-        className="w-full rounded-2xl p-3.5 flex items-center gap-3 text-left"
-        style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+        onClick={() => setFolderAddOpen((v) => !v)}
+        className="flex-none grid place-items-center rounded-full"
+        style={{ width: 30, height: 30, background: 'var(--surface)', border: '1px solid var(--line)' }}
+        title={folderAddOpen ? 'Скрыть добавление' : 'Добавить папку'}
       >
-        <Tile icon={FolderIcon} color="var(--f-environment)" size={36} />
-        <span className="flex-1 min-w-0">
-          <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--light)' }}>
-            {f.name}
-          </span>
-          <span className="block truncate mt-0.5" style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {sub}
-          </span>
-        </span>
-        <ChevronRight size={16} strokeWidth={2} style={{ color: 'var(--muted)' }} />
+        <Plus size={15} strokeWidth={2} style={{ color: folderAddOpen ? 'var(--accent)' : 'var(--muted)' }} />
       </button>
-    )
-  }
+      {folderAddOpen && (
+        <button
+          onClick={() => { addFolder(currentFolder, scope); setFolderAddOpen(false) }}
+          className="flex-none flex items-center gap-1.5 rounded-full px-3 py-1.5 fadein"
+          style={{ background: 'var(--accent)', color: 'var(--on-fill)', fontSize: 12.5, fontWeight: 600 }}
+        >
+          <FolderPlus size={13} strokeWidth={2} /> добавить папку
+        </button>
+      )}
+    </div>
+  )
 
   return (
     <div className="px-4 pt-5 pb-36 min-h-screen">
@@ -635,10 +654,9 @@ export default function RecordsView({
         {section === 'records' && (
           <>
             {renderBreadcrumbs('Все записи')}
+            {renderFolderChips('records')}
 
             <div className="space-y-2.5">
-              {subfolders.map(renderFolderRow)}
-
               {subfolders.length === 0 && notesHere.length === 0 && recsHere.length === 0 && (
                 <Empty text={currentFolder ? 'Папка пустая — добавь через +' : 'Пока пусто — создай запись или папку через +'} />
               )}
@@ -653,10 +671,9 @@ export default function RecordsView({
         {section === 'blocks' && (
           <>
             {renderBreadcrumbs('Все блоки')}
+            {renderFolderChips('blocks')}
 
             <div className="space-y-2.5">
-              {subfolders.map(renderFolderRow)}
-
               {subfolders.length === 0 && templatesHere.length === 0 && (
                 <Empty text={currentFolder ? 'Папка пустая — создай шаблон через +' : 'Нет шаблонов — создай первый через +'} />
               )}
@@ -792,7 +809,7 @@ export default function RecordsView({
               ['Заметка', FileText, () => createNote()],
               ['Чек-лист', ListChecks, () => createRec('checklist')],
               ['Список', ListOrdered, () => createRec('list')],
-              ['Папка', FolderPlus, () => { addFolder(currentFolder, 'records'); setSettingsOpen(true) }],
+              ['Папка', FolderPlus, () => addFolder(currentFolder, 'records')],
             ] as const).map(([label, Icon, fn]) => (
               <button
                 key={label}
@@ -815,16 +832,25 @@ export default function RecordsView({
           setFolders={setFolders}
           renaming={renamingFolder}
           setRenaming={setRenamingFolder}
-          folderMenu={folderMenu}
           setFolderMenu={setFolderMenu}
           onAddFolder={addFolder}
           onRename={renameFolder}
-          onDelete={deleteFolder}
           onClose={() => { setSettingsOpen(false); setRenamingFolder(null) }}
         />
       )}
 
-      {/* меню папки (внутри настроек) */}
+      {/* меню папки: long-press по чипсу или три точки в дереве настроек */}
+      {folderMenu && (
+        <ActionSheet
+          title={folders.find((f) => f.id === folderMenu)?.name || 'Папка'}
+          onClose={() => setFolderMenu(null)}
+          onRename={() => setRenamingFolder(folderMenu)}
+          extras={[
+            { icon: FolderPlus, label: 'Добавить подпапку', onClick: () => onAddSubfolder(folderMenu) },
+          ]}
+          onDelete={() => deleteFolder(folderMenu)}
+        />
+      )}
       {/* шаблон: меню */}
       {tplMenu && (
         <ActionSheet
@@ -1048,28 +1074,62 @@ export default function RecordsView({
   )
 }
 
+// чипс папки в горизонтальной строке: тап — зайти, long-press (~450ms) — настройка
+function FolderChip({ label, onClick, onLongPress }: { label: string; onClick: () => void; onLongPress: () => void }) {
+  const timer = useRef<number | undefined>(undefined)
+  const fired = useRef(false)
+  const start = () => {
+    fired.current = false
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => {
+      fired.current = true
+      onLongPress()
+    }, 450)
+  }
+  const cancel = () => window.clearTimeout(timer.current)
+  return (
+    <button
+      onTouchStart={start}
+      onTouchEnd={cancel}
+      onTouchMove={cancel}
+      onTouchCancel={cancel}
+      onMouseDown={start}
+      onMouseUp={cancel}
+      onMouseLeave={cancel}
+      onClick={() => {
+        if (fired.current) {
+          fired.current = false
+          return
+        }
+        onClick()
+      }}
+      className="flex-none flex items-center gap-1.5 rounded-full px-3 py-1.5"
+      style={{ background: 'var(--surface)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600, color: 'var(--light)' }}
+    >
+      <FolderIcon size={13} strokeWidth={1.8} style={{ color: 'var(--f-environment)' }} />
+      {label}
+    </button>
+  )
+}
+
 // ─── настройка папок: дерево с подпапками, drag-перестановка, переименование ───
 function FolderSettings({
   folders,
   setFolders,
   renaming,
   setRenaming,
-  folderMenu,
   setFolderMenu,
   onAddFolder,
   onRename,
-  onDelete,
   onClose,
 }: {
   folders: Folder[]
   setFolders: (f: Folder[] | ((prev: Folder[]) => Folder[])) => void
   renaming: string | null
   setRenaming: (id: string | null) => void
-  folderMenu: string | null
   setFolderMenu: (id: string | null) => void
   onAddFolder: (parentId: string | null, scope: 'records' | 'blocks') => void
   onRename: (id: string, name: string) => void
-  onDelete: (id: string) => void
   onClose: () => void
 }) {
   return (
@@ -1117,18 +1177,6 @@ function FolderSettings({
           />
         </div>
       </div>
-
-      {folderMenu && (
-        <ActionSheet
-          title={folders.find((f) => f.id === folderMenu)?.name || 'Папка'}
-          onClose={() => setFolderMenu(null)}
-          onRename={() => setRenaming(folderMenu)}
-          extras={[
-            { icon: FolderPlus, label: 'Добавить подпапку', onClick: () => onAddFolder(folderMenu, scopeOf(folders.find((f) => f.id === folderMenu)!, folders)) },
-          ]}
-          onDelete={() => onDelete(folderMenu)}
-        />
-      )}
     </div>
   )
 }

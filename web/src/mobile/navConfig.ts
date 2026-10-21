@@ -144,7 +144,17 @@ export function readTabs(): AppTab[] {
     })
     if (filtered.length === 0) return DEFAULT_TABS
 
-    return filtered.slice(0, 5).map((tab) => {
+    // «Настройки» — постоянная вкладка: докидываем, если её нет в сохранённом списке
+    if (!filtered.some((t) => t.id === 'settings')) {
+      filtered.push({ ...DEFAULT_TABS.find((t) => t.id === 'settings')! })
+    }
+    // лимит 5, но «Настройки» не вытесняются
+    const capped =
+      filtered.length > 5
+        ? [...filtered.filter((t) => t.id !== 'settings').slice(0, 4), filtered.find((t) => t.id === 'settings')!]
+        : filtered
+
+    return capped.map((tab) => {
       const meta = ALL_TAB_META[tab.id]
       const base = DEFAULT_TABS.find((t) => t.id === tab.id)
       let folders = (tab.folders ?? []).map((folder) => ({
