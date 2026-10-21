@@ -17,7 +17,7 @@ export interface DayInstance {
   items: DayItem[]
 }
 
-export interface Folder { id: string; name: string }
+export interface Folder { id: string; name: string; parentId?: string }
 export interface EmotionSubItem {
   name: string
   level: number // 0–12
@@ -122,8 +122,21 @@ export interface ListRecord {
   title: string
   items: BlockItem[]
   lists?: BlockList[]  // вложенные подблоки-чек-листы внутри записи
+  folderId?: string    // папка в «Записях»; нет/неизвестная — корень
   updated: number
   emotions?: EmotionTag[]
+}
+
+// шаблон блока из раздела «Блоки» (ключ aod4-block-templates):
+// заранее созданный блок, который добавляется в день одной кнопкой
+export interface BlockTemplate {
+  id: string
+  title: string
+  withTime: boolean
+  inDashboard: boolean
+  items: BlockItem[]
+  lists: BlockList[]
+  updated: number
 }
 
 // ─── helpers ───

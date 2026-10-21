@@ -1,55 +1,79 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Blocks,
   BookOpen,
+  CalendarPlus,
+  ChevronRight,
   FileText,
   Folder as FolderIcon,
+  FolderPlus,
   HeartPulse,
   ListChecks,
   ListOrdered,
+  MoreHorizontal,
   Plus,
   Search,
+  Settings2,
   Share2,
   SmilePlus,
   Stethoscope,
   Star,
   Trash2,
+  X,
   type LucideIcon,
 } from 'lucide-react'
 import {
   allEmotionTags,
   emotionName,
+  moveItem,
   plutchikColor,
   recItemStats,
+  seedDayBlocks,
+  seedTodayData,
   toggleNestedListItem,
+  uid,
+  type BlockDef,
   type BlockItem,
+  type BlockList,
+  type BlockTemplate,
   type Diary,
   type EmotionRecordSource,
   type EmotionTag,
   type Folder,
   type ListRecord,
   type Note,
+  type TodayData,
   SEED_FOLDERS,
   SEED_NOTES,
   todayKey,
-  uid,
   useLS,
 } from '../views/practice/store'
+import { readLS, writeLS } from '../lib/sync'
+import { WD } from '../lib/dayStats'
 import EmotionTagSheet, { type SheetState } from './EmotionTagSheet'
 import Immersion from './Immersion'
 import ListRecordEditor from './ListRecordEditor'
+import ActionSheet from './ActionSheet'
+import { useDragList } from './useDragList'
 import { MCheck, Tile } from './ui'
 import { fmtWhen, useToast } from './utils'
 
-export type FolderKey = 'all' | 'notes' | 'lists' | 'diary' | 'therapy' | 'emotion-diary'
-
-const FOLDER_TABS: { id: FolderKey; label: string; icon: LucideIcon }[] = [
-  { id: 'all', label: 'Всё', icon: FolderIcon },
-  { id: 'notes', label: 'Заметки', icon: FileText },
-  { id: 'lists', label: 'Списки', icon: ListChecks },
+// верхние разделы «Записей»
+type Section = 'records' | 'blocks' | 'psyche' | 'diary'
+const SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
+  { id: 'records', label: 'Записи', icon: FolderIcon },
+  { id: 'blocks', label: 'Блоки', icon: Blocks },
+  { id: 'psyche', label: 'Психика', icon: HeartPulse },
   { id: 'diary', label: 'Дневник', icon: BookOpen },
+]
+
+type PsycheTab = 'therapy' | 'emotion-diary'
+const PSYCHE_TABS: { id: PsycheTab; label: string; icon: LucideIcon }[] = [
   { id: 'therapy', label: 'Терапия', icon: Stethoscope },
   { id: 'emotion-diary', label: 'Дн. эмоций', icon: HeartPulse },
 ]
+
+const ROOT_FOLDER = 'inbox' // legacy folderId для записей в корне
 
 const TILE_COLORS = ['var(--accent)', 'var(--f-metacog)', 'var(--f-neuro)', 'var(--f-emotions)', 'var(--f-environment)']
 
@@ -66,17 +90,41 @@ const recSub = (r: ListRecord) => {
   return r.kind === 'checklist' ? `${done}/${total} пунктов` : `${total} пунктов`
 }
 
+// folderId записи с защитой: 'inbox', отсутствующая или удалённая папка → корень
+const normFolderId = (fid: string | undefined, folders: Folder[]): string | null =>
+  fid && fid !== ROOT_FOLDER && folders.some((f) => f.id === fid) ? fid : null
+
+const cloneTemplateItems = (items: BlockItem[], withTime: boolean): BlockItem[] =>
+  items.map((it) => ({
+    id: uid(),
+    text: it.text,
+    done: false,
+    ...(withTime ? { time: it.time ?? '12:00' } : {}),
+  }))
+
+const cloneTemplateList = (l: BlockList, withTime: boolean): BlockList => ({
+  id: uid(),
+  kind: l.kind,
+  title: l.title,
+  items: cloneTemplateItems(l.items, withTime),
+  lists: l.lists?.map((x) => cloneTemplateList(x, withTime)),
+})
+
 export default function RecordsView({
   onHome,
 }: {
   onHome: () => void
 }) {
-  const [folder, setFolder] = useState<FolderKey>('all')
+  const [section, setSection] = useState<Section>('records')
+  const [psycheTab, setPsycheTab] = useState<PsycheTab>('therapy')
+  const [path, setPath] = useState<string[]>([]) // цепочка папок: id от корня до текущей
   const tk = todayKey()
+
   const [notes, setNotes] = useLS<Note[]>('aod4-notes', SEED_NOTES)
-  const [folders] = useLS<Folder[]>('aod4-folders', SEED_FOLDERS)
+  const [folders, setFolders] = useLS<Folder[]>('aod4-folders', SEED_FOLDERS)
   const [listrecs, setListrecs] = useLS<ListRecord[]>('aod4-listrecs', [])
   const [diary, setDiary] = useLS<Diary>('aod4-diary', {})
+  const [templates, setTemplates] = useLS<BlockTemplate[]>('aod4-block-templates', [])
 
   useEffect(() => {
     const fixNotes = notes.some((n) => typeof n.body !== 'string' || typeof n.title !== 'string')
@@ -138,8 +186,12 @@ export default function RecordsView({
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
   const [openDiaryDate, setOpenDiaryDate] = useState<string | null>(null)
   const [openRecId, setOpenRecId] = useState<string | null>(null)
+  const [openTplId, setOpenTplId] = useState<string | null>(null)
   const [fabMenu, setFabMenu] = useState(false)
-  const [listFab, setListFab] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [folderMenu, setFolderMenu] = useState<string | null>(null)
+  const [renamingFolder, setRenamingFolder] = useState<string | null>(null)
+  const [tplMenu, setTplMenu] = useState<string | null>(null)
   const [emotionSheet, setEmotionSheet] = useState<SheetState>({ open: false, mode: 'create' })
   const toast = useToast()
 
@@ -147,10 +199,61 @@ export default function RecordsView({
 
   const touchX = useRef<number | null>(null)
 
-  const folderName = (fid: string) => folders.find((f) => f.id === fid)?.name ?? 'Входящие'
+  const currentFolder = path.length > 0 ? path[path.length - 1] : null
+  const folderName = (fid: string | undefined) =>
+    fid ? folders.find((f) => f.id === fid)?.name ?? 'Входящие' : 'Входящие'
 
+  // ─── папки ───
+  const subfoldersOf = (pid: string | null) =>
+    folders.filter((f) => normFolderId(f.parentId, folders) === pid)
+
+  const folderCounts = (fid: string) => {
+    const n = notes.filter((x) => normFolderId(x.folderId, folders) === fid).length
+    const r = listrecs.filter((x) => normFolderId(x.folderId, folders) === fid).length
+    return { n, r }
+  }
+
+  const addFolder = (parentId: string | null) => {
+    const f: Folder = { id: uid(), name: 'Новая папка', ...(parentId ? { parentId } : {}) }
+    setFolders((fs) => [...fs, f])
+    setRenamingFolder(f.id)
+  }
+
+  const renameFolder = (fid: string, name: string) => {
+    if (!name.trim()) return
+    setFolders((fs) => fs.map((f) => (f.id === fid ? { ...f, name: name.trim() } : f)))
+  }
+
+  const deleteFolder = (fid: string) => {
+    const doomed = new Set<string>([fid])
+    let grew = true
+    while (grew) {
+      grew = false
+      folders.forEach((f) => {
+        if (f.parentId && doomed.has(f.parentId) && !doomed.has(f.id)) {
+          doomed.add(f.id)
+          grew = true
+        }
+      })
+    }
+    setFolders((fs) => fs.filter((f) => !doomed.has(f.id)))
+    setNotes((ns) => ns.map((n) => (n.folderId && doomed.has(n.folderId) ? { ...n, folderId: ROOT_FOLDER } : n)))
+    setListrecs((rs) => rs.map((r) => (r.folderId && doomed.has(r.folderId) ? { ...r, folderId: ROOT_FOLDER } : r)))
+    setPath((p) => p.filter((id) => !doomed.has(id)))
+  }
+
+  // ─── записи ───
   const sortedNotes = useMemo(() => [...notes].sort((a, b) => b.updated - a.updated), [notes])
   const sortedRecs = useMemo(() => [...listrecs].sort((a, b) => b.updated - a.updated), [listrecs])
+  const notesHere = useMemo(
+    () => sortedNotes.filter((n) => normFolderId(n.folderId, folders) === currentFolder),
+    [sortedNotes, folders, currentFolder],
+  )
+  const recsHere = useMemo(
+    () => sortedRecs.filter((r) => normFolderId(r.folderId, folders) === currentFolder),
+    [sortedRecs, folders, currentFolder],
+  )
+  const subfolders = useMemo(() => subfoldersOf(currentFolder), [folders, currentFolder]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const diaryDays = useMemo(
     () =>
@@ -161,47 +264,13 @@ export default function RecordsView({
     [diary]
   )
 
-  // общая лента «Всё»
-  const feed = useMemo(() => {
-    type Item = {
-      kind: 'note' | 'listrec' | 'diary'
-      id: string
-      title: string
-      sub: string
-      updated: number
-      recKind?: ListRecord['kind']
-      therapy?: boolean
-    }
-    const items: Item[] = [
-      ...notes.map((n): Item => ({
-        kind: 'note', id: n.id,
-        title: n.title || 'Без названия',
-        sub: n.body?.split('\n')[0] || '—',
-        updated: n.updated,
-        therapy: n.therapy,
-      })),
-      ...listrecs.map((r): Item => ({
-        kind: 'listrec', id: r.id, recKind: r.kind,
-        title: recTitle(r),
-        sub: recSub(r),
-        updated: r.updated,
-      })),
-      ...diaryDays.map((dk): Item => ({
-        kind: 'diary', id: dk,
-        title: `Дневник · ${diaryLabel(dk)}`,
-        sub: diary[dk]?.text?.split('\n')[0] || diary[dk]?.emotion || '—',
-        updated: diary[dk].updated || 0,
-        therapy: diary[dk].therapy,
-      })),
-    ]
-    return items.sort((a, b) => b.updated - a.updated)
-  }, [notes, listrecs, diaryDays, diary])
-
   const therapyNotes = useMemo(() => sortedNotes.filter((n) => n.therapy), [sortedNotes])
   const therapyDiaryDays = useMemo(() => diaryDays.filter((dk) => diary[dk].therapy), [diaryDays, diary])
   const emotionDiaryDays = useMemo(() => diaryDays.filter((dk) => (diary[dk].emotions?.length ?? 0) > 0), [diaryDays, diary])
 
-  // ─── свайп папок ───
+  const sortedTemplates = useMemo(() => [...templates].sort((a, b) => b.updated - a.updated), [templates])
+
+  // ─── свайп разделов ───
   const onTouchStart = (e: React.TouchEvent) => {
     touchX.current = e.touches[0].clientX
   }
@@ -210,34 +279,80 @@ export default function RecordsView({
     const dx = e.changedTouches[0].clientX - touchX.current
     touchX.current = null
     if (Math.abs(dx) < 60) return
-    const idx = FOLDER_TABS.findIndex((t) => t.id === folder)
+    const idx = SECTIONS.findIndex((t) => t.id === section)
     const next = dx < 0 ? idx + 1 : idx - 1
-    if (next >= 0 && next < FOLDER_TABS.length) setFolder(FOLDER_TABS[next].id)
+    if (next >= 0 && next < SECTIONS.length) setSection(SECTIONS[next].id)
   }
 
   // ─── действия ───
-  const createNote = () => {
-    const n: Note = { id: uid(), folderId: 'inbox', title: '', body: '', updated: Date.now() }
+  const createNote = (therapy = false) => {
+    const n: Note = {
+      id: uid(),
+      folderId: currentFolder ?? ROOT_FOLDER,
+      title: '',
+      body: '',
+      updated: Date.now(),
+      ...(therapy ? { therapy: true } : {}),
+    }
     setNotes((ns) => [n, ...ns])
     setOpenNoteId(n.id)
   }
 
   const createRec = (kind: ListRecord['kind']) => {
-    const r: ListRecord = { id: uid(), kind, title: '', items: [], updated: Date.now() }
+    const r: ListRecord = { id: uid(), kind, title: '', items: [], folderId: currentFolder ?? ROOT_FOLDER, updated: Date.now() }
     setListrecs((rs) => [r, ...rs])
     setOpenRecId(r.id)
   }
+
+  const createTemplate = () => {
+    const t: BlockTemplate = { id: uid(), title: '', withTime: false, inDashboard: true, items: [], lists: [], updated: Date.now() }
+    setTemplates((ts) => [t, ...ts])
+    setOpenTplId(t.id)
+  }
+
   const patchRec = (id: string, patch: Partial<ListRecord>) =>
     setListrecs((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch, updated: Date.now() } : r)))
 
   const patchNote = (id: string, patch: Partial<Note>) =>
     setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, ...patch, updated: Date.now() } : n)))
 
+  const patchTpl = (id: string, patch: Partial<BlockTemplate>) =>
+    setTemplates((ts) => ts.map((t) => (t.id === id ? { ...t, ...patch, updated: Date.now() } : t)))
+
   const openNote = notes.find((n) => n.id === openNoteId) ?? null
   const openRec = listrecs.find((r) => r.id === openRecId) ?? null
+  const openTpl = templates.find((t) => t.id === openTplId) ?? null
   const diaryEntry = (dk: string) => diary[dk] || { text: '', emotion: '', focus: 5, updated: 0 }
   const patchDiary = (dk: string, p: Partial<Diary[string]>) =>
     setDiary((d) => ({ ...d, [dk]: { ...diaryEntry(dk), ...p, updated: Date.now() } }))
+
+  // шаблон → блок сегодняшнего дня (пункты клонируются, галочки сброшены)
+  const addTemplateToDay = (tpl: BlockTemplate) => {
+    const now = new Date()
+    const wdName = WD[now.getDay()]
+    const defsKey = `aod4-today-blocks-${tk}`
+    const dataKey = `aod4-today-data-${tk}`
+    const defs = readLS<BlockDef[]>(defsKey, seedDayBlocks())
+    const data = readLS<TodayData>(dataKey, seedTodayData(tk, wdName, false))
+    const def: BlockDef = {
+      id: uid(),
+      title: tpl.title,
+      withTime: tpl.withTime,
+      inDashboard: tpl.inDashboard,
+      allow: { items: true, checklists: true, lists: true, sub: true },
+    }
+    writeLS(defsKey, [...defs, def])
+    writeLS(dataKey, {
+      ...data,
+      [def.id]: {
+        items: cloneTemplateItems(tpl.items, tpl.withTime),
+        lists: tpl.lists.map((l) => cloneTemplateList(l, tpl.withTime)),
+      },
+    })
+    // перезагружаем открытые экраны из localStorage, чтобы «Сегодня» увидел блок сразу
+    window.dispatchEvent(new Event('aod:sync-hydrated'))
+    toast.show(`Блок «${tpl.title || 'Без названия'}» добавлен в сегодня`)
+  }
 
   const openEmotionSheet = (sourceType: EmotionRecordSource, sourceId: string, tag?: EmotionTag) => {
     setEmotionSheet({
@@ -321,11 +436,58 @@ export default function RecordsView({
   }
 
   const onFab = () => {
-    if (folder === 'notes') createNote()
-    else if (folder === 'lists') setListFab((o) => !o)
-    else if (folder === 'diary') setOpenDiaryDate(tk)
-    else setFabMenu((o) => !o)
+    if (section === 'records') setFabMenu((o) => !o)
+    else if (section === 'blocks') createTemplate()
+    else if (section === 'psyche') {
+      if (psycheTab === 'therapy') createNote(true)
+      else setOpenDiaryDate(tk)
+    } else setOpenDiaryDate(tk)
   }
+
+  const renderNoteRow = (n: Note, i: number) => (
+    <NoteRow
+      key={n.id}
+      n={n}
+      folderName={folderName(n.folderId)}
+      tileColor={TILE_COLORS[i % TILE_COLORS.length]}
+      onOpen={() => setOpenNoteId(n.id)}
+      onTogglePin={(e) => {
+        e.stopPropagation()
+        patchNote(n.id, { pinned: !n.pinned })
+      }}
+      onEditEmotion={(tag) => openEmotionSheet('note', n.id, tag)}
+      onAddEmotion={() => openEmotionSheet('note', n.id)}
+    />
+  )
+
+  const renderDiaryRow = (dk: string) => (
+    <DiaryRow
+      key={dk}
+      dk={dk}
+      diary={diary}
+      onOpen={() => setOpenDiaryDate(dk)}
+      onEditEmotion={(tag) => openEmotionSheet('diary', dk, tag)}
+      onAddEmotion={() => openEmotionSheet('diary', dk)}
+    />
+  )
+
+  const renderRecCard = (r: ListRecord) => (
+    <ListRecCard
+      key={r.id}
+      rec={r}
+      onOpen={() => setOpenRecId(r.id)}
+      onToggleItem={(itemId) =>
+        patchRec(r.id, {
+          items: r.items.map((x) => (x.id === itemId ? { ...x, done: !x.done } : x)),
+        })
+      }
+      onToggleListItem={(listId, itemId) =>
+        patchRec(r.id, { lists: toggleNestedListItem(r.lists ?? [], listId, itemId) })
+      }
+      onEditEmotion={(tag) => openEmotionSheet('listrec', r.id, tag)}
+      onAddEmotion={() => openEmotionSheet('listrec', r.id)}
+    />
+  )
 
   return (
     <div className="px-4 pt-5 pb-36 min-h-screen">
@@ -334,20 +496,25 @@ export default function RecordsView({
         <h1 style={{ fontFamily: 'var(--font-body)', fontSize: 28, fontWeight: 700, color: 'var(--light)' }}>
           Записи
         </h1>
-        <button onClick={() => toast.show('Поиск — скоро')} className="p-1 pt-2" title="Поиск">
-          <Search size={20} strokeWidth={1.7} style={{ color: 'var(--muted)' }} />
-        </button>
+        <div className="flex items-center gap-3 pt-2">
+          <button onClick={() => toast.show('Поиск — скоро')} title="Поиск">
+            <Search size={20} strokeWidth={1.7} style={{ color: 'var(--muted)' }} />
+          </button>
+          <button onClick={() => setSettingsOpen(true)} title="Настройка папок">
+            <Settings2 size={20} strokeWidth={1.7} style={{ color: 'var(--muted)' }} />
+          </button>
+        </div>
       </div>
 
-      {/* папки-чипы */}
+      {/* разделы */}
       <div className="no-scrollbar flex gap-2 overflow-x-auto mb-4">
-        {FOLDER_TABS.map((t) => {
-          const active = folder === t.id
+        {SECTIONS.map((t) => {
+          const active = section === t.id
           const Icon = t.icon
           return (
             <button
               key={t.id}
-              onClick={() => setFolder(t.id)}
+              onClick={() => setSection(t.id)}
               className="flex-none flex items-center gap-1.5 px-4 py-2 rounded-full transition-colors"
               style={{
                 background: active ? 'var(--accent)' : 'transparent',
@@ -364,161 +531,184 @@ export default function RecordsView({
         })}
       </div>
 
-      {/* контент папки (свайп влево/вправо листает папки) */}
-      <div key={folder} className="fadein space-y-2.5" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        {folder === 'all' && (
+      <div key={section} className="fadein" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        {/* ─── Записи: папки + содержимое текущей папки ─── */}
+        {section === 'records' && (
           <>
-            {feed.length === 0 && <Empty text="Пока пусто" />}
-            {feed.map((it) => (
+            {/* хлебные крошки */}
+            <div className="flex items-center gap-1 flex-wrap mb-3">
               <button
-                key={`${it.kind}-${it.id}`}
-                onClick={() => {
-                  if (it.kind === 'note') setOpenNoteId(it.id)
-                  else if (it.kind === 'diary') setOpenDiaryDate(it.id)
-                  else setOpenRecId(it.id)
+                onClick={() => setPath([])}
+                className="px-2 py-1 rounded-lg"
+                style={{
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: currentFolder === null ? 'var(--accent)' : 'var(--muted)',
+                  background: currentFolder === null ? 'var(--surface-2)' : 'transparent',
                 }}
-                className="w-full rounded-2xl p-3.5 flex items-center gap-3 text-left"
-                style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
               >
-                <Tile
-                  icon={
-                    it.kind === 'note' ? FileText
-                    : it.kind === 'listrec' ? (it.recKind === 'checklist' ? ListChecks : ListOrdered)
-                    : BookOpen
-                  }
-                  color={
-                    it.kind === 'note' ? 'var(--accent)'
-                    : it.kind === 'listrec' ? (it.recKind === 'checklist' ? 'var(--ring-checklists)' : 'var(--ring-tasks)')
-                    : 'var(--f-emotions)'
-                  }
-                  size={36}
-                />
-                <span className="flex-1 min-w-0">
-                  <span className="flex items-center gap-1.5">
-                    <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--light)' }}>
-                      {it.title}
-                    </span>
-                    {it.therapy && <Stethoscope size={12} strokeWidth={1.8} style={{ color: 'var(--muted)' }} />}
-                  </span>
-                  <span className="block truncate mt-0.5" style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                    {it.sub}
-                  </span>
-                </span>
-                {it.updated > 0 && (
-                  <span className="flex-none" style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtWhen(it.updated)}</span>
-                )}
+                Все записи
               </button>
-            ))}
+              {path.map((fid, i) => (
+                <span key={fid} className="flex items-center gap-1">
+                  <ChevronRight size={12} strokeWidth={2} style={{ color: 'var(--line-strong)' }} />
+                  <button
+                    onClick={() => setPath(path.slice(0, i + 1))}
+                    className="px-2 py-1 rounded-lg"
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      color: i === path.length - 1 ? 'var(--accent)' : 'var(--muted)',
+                      background: i === path.length - 1 ? 'var(--surface-2)' : 'transparent',
+                    }}
+                  >
+                    {folderName(fid)}
+                  </button>
+                </span>
+              ))}
+            </div>
+
+            <div className="space-y-2.5">
+              {/* подпапки */}
+              {subfolders.map((f) => {
+                const c = folderCounts(f.id)
+                const subs = subfoldersOf(f.id).length
+                return (
+                  <button
+                    key={f.id}
+                    onClick={() => setPath([...path, f.id])}
+                    className="w-full rounded-2xl p-3.5 flex items-center gap-3 text-left"
+                    style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+                  >
+                    <Tile icon={FolderIcon} color="var(--f-environment)" size={36} />
+                    <span className="flex-1 min-w-0">
+                      <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--light)' }}>
+                        {f.name}
+                      </span>
+                      <span className="block truncate mt-0.5" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {[
+                          subs > 0 ? `${subs} папок` : '',
+                          c.n > 0 ? `${c.n} заметок` : '',
+                          c.r > 0 ? `${c.r} списков` : '',
+                        ].filter(Boolean).join(' · ') || 'пусто'}
+                      </span>
+                    </span>
+                    <ChevronRight size={16} strokeWidth={2} style={{ color: 'var(--muted)' }} />
+                  </button>
+                )
+              })}
+
+              {subfolders.length === 0 && notesHere.length === 0 && recsHere.length === 0 && (
+                <Empty text={currentFolder ? 'Папка пустая — добавь через +' : 'Пока пусто — создай запись или папку через +'} />
+              )}
+
+              {notesHere.map(renderNoteRow)}
+              {recsHere.map(renderRecCard)}
+            </div>
           </>
         )}
 
-        {folder === 'notes' && (
+        {/* ─── Блоки: шаблоны для добавления в день ─── */}
+        {section === 'blocks' && (
+          <div className="space-y-2.5">
+            <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Шаблоны блоков. Создай заранее — потом добавляй в день одной кнопкой.
+            </p>
+            {sortedTemplates.length === 0 && <Empty text="Нет шаблонов — создай первый через +" />}
+            {sortedTemplates.map((t) => {
+              const itemsCount = t.items.length + t.lists.reduce((acc, l) => acc + l.items.length, 0)
+              return (
+                <div
+                  key={t.id}
+                  className="rounded-2xl p-3.5"
+                  style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+                >
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setOpenTplId(t.id)} className="flex-1 min-w-0 flex items-center gap-3 text-left">
+                      <Tile icon={Blocks} color="var(--accent)" size={40} />
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--light)' }}>
+                          {t.title || 'Без названия'}
+                        </span>
+                        <span className="block truncate mt-0.5" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          {[
+                            itemsCount > 0 ? `${itemsCount} пунктов` : 'пусто',
+                            t.lists.length > 0 ? `${t.lists.length} списков` : '',
+                            t.withTime ? 'со временем' : '',
+                            t.inDashboard ? 'в дашборд' : '',
+                          ].filter(Boolean).join(' · ')}
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => addTemplateToDay(t)}
+                      className="flex-none flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl"
+                      style={{ background: 'var(--accent)', color: 'var(--on-fill)', fontSize: 12, fontWeight: 600 }}
+                      title="Добавить в сегодня"
+                    >
+                      <CalendarPlus size={14} strokeWidth={2} />
+                      В день
+                    </button>
+                    <button onClick={() => setTplMenu(t.id)} className="flex-none p-1" style={{ color: 'var(--muted)' }}>
+                      <MoreHorizontal size={18} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ─── Психика: терапия + дневник эмоций ─── */}
+        {section === 'psyche' && (
           <>
-            {sortedNotes.length === 0 && <Empty text="Нет заметок — создай первую через +" />}
-            {sortedNotes.map((n, i) => (
-              <NoteRow
-                key={n.id}
-                n={n}
-                folderName={folderName(n.folderId)}
-                tileColor={TILE_COLORS[i % TILE_COLORS.length]}
-                onOpen={() => setOpenNoteId(n.id)}
-                onTogglePin={(e) => {
-                  e.stopPropagation()
-                  patchNote(n.id, { pinned: !n.pinned })
-                }}
-                onEditEmotion={(tag) => openEmotionSheet('note', n.id, tag)}
-                onAddEmotion={() => openEmotionSheet('note', n.id)}
-              />
-            ))}
+            <div className="flex gap-2 mb-4">
+              {PSYCHE_TABS.map((t) => {
+                const active = psycheTab === t.id
+                const Icon = t.icon
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setPsycheTab(t.id)}
+                    className="flex-none flex items-center gap-1.5 px-3.5 py-1.5 rounded-full transition-colors"
+                    style={{
+                      background: active ? 'var(--surface-2)' : 'transparent',
+                      border: `1px solid ${active ? 'var(--line-strong)' : 'var(--line)'}`,
+                      color: active ? 'var(--light)' : 'var(--muted)',
+                    }}
+                  >
+                    <Icon size={13} strokeWidth={1.8} />
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{t.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="space-y-2.5">
+              {psycheTab === 'therapy' && (
+                <>
+                  {therapyNotes.length === 0 && therapyDiaryDays.length === 0 && (
+                    <Empty text="Нет терапевтических записей — отметь заметку или дневник терапией" />
+                  )}
+                  {therapyNotes.map(renderNoteRow)}
+                  {therapyDiaryDays.map(renderDiaryRow)}
+                </>
+              )}
+              {psycheTab === 'emotion-diary' && (
+                <>
+                  {emotionDiaryDays.length === 0 && <Empty text="Нет записей с эмоциональными тегами" />}
+                  {emotionDiaryDays.map(renderDiaryRow)}
+                </>
+              )}
+            </div>
           </>
         )}
 
-        {folder === 'lists' && (
-          <>
-            {sortedRecs.length === 0 && <Empty text="Нет записей — создай чек-лист или список через +" />}
-            {sortedRecs.map((r) => (
-              <ListRecCard
-                key={r.id}
-                rec={r}
-                onOpen={() => setOpenRecId(r.id)}
-                onToggleItem={(itemId) =>
-                  patchRec(r.id, {
-                    items: r.items.map((x) => (x.id === itemId ? { ...x, done: !x.done } : x)),
-                  })
-                }
-                onToggleListItem={(listId, itemId) =>
-                  patchRec(r.id, { lists: toggleNestedListItem(r.lists ?? [], listId, itemId) })
-                }
-                onEditEmotion={(tag) => openEmotionSheet('listrec', r.id, tag)}
-                onAddEmotion={() => openEmotionSheet('listrec', r.id)}
-              />
-            ))}
-          </>
-        )}
-
-        {folder === 'diary' && (
-          <>
+        {/* ─── Дневник ─── */}
+        {section === 'diary' && (
+          <div className="space-y-2.5">
             {diaryDays.length === 0 && <Empty text="Нет записей — напиши первую через +" />}
-            {diaryDays.map((dk) => (
-              <DiaryRow
-                key={dk}
-                dk={dk}
-                diary={diary}
-                onOpen={() => setOpenDiaryDate(dk)}
-                onEditEmotion={(tag) => openEmotionSheet('diary', dk, tag)}
-                onAddEmotion={() => openEmotionSheet('diary', dk)}
-              />
-            ))}
-          </>
-        )}
-
-        {folder === 'therapy' && (
-          <>
-            {therapyNotes.length === 0 && therapyDiaryDays.length === 0 && (
-              <Empty text="Нет терапевтических записей — отметь заметку или дневник терапией" />
-            )}
-            {therapyNotes.map((n, i) => (
-              <NoteRow
-                key={n.id}
-                n={n}
-                folderName={folderName(n.folderId)}
-                tileColor={TILE_COLORS[i % TILE_COLORS.length]}
-                onOpen={() => setOpenNoteId(n.id)}
-                onTogglePin={(e) => {
-                  e.stopPropagation()
-                  patchNote(n.id, { pinned: !n.pinned })
-                }}
-                onEditEmotion={(tag) => openEmotionSheet('note', n.id, tag)}
-                onAddEmotion={() => openEmotionSheet('note', n.id)}
-              />
-            ))}
-            {therapyDiaryDays.map((dk) => (
-              <DiaryRow
-                key={dk}
-                dk={dk}
-                diary={diary}
-                onOpen={() => setOpenDiaryDate(dk)}
-                onEditEmotion={(tag) => openEmotionSheet('diary', dk, tag)}
-                onAddEmotion={() => openEmotionSheet('diary', dk)}
-              />
-            ))}
-          </>
-        )}
-
-        {folder === 'emotion-diary' && (
-          <>
-            {emotionDiaryDays.length === 0 && <Empty text="Нет записей с эмоциональными тегами" />}
-            {emotionDiaryDays.map((dk) => (
-              <DiaryRow
-                key={dk}
-                dk={dk}
-                diary={diary}
-                onOpen={() => setOpenDiaryDate(dk)}
-                onEditEmotion={(tag) => openEmotionSheet('diary', dk, tag)}
-                onAddEmotion={() => openEmotionSheet('diary', dk)}
-              />
-            ))}
-          </>
+            {diaryDays.map(renderDiaryRow)}
+          </div>
         )}
       </div>
 
@@ -538,7 +728,7 @@ export default function RecordsView({
         <Plus size={24} strokeWidth={2} />
       </button>
 
-      {/* меню FAB на «Всё» */}
+      {/* меню FAB на «Записях» */}
       {fabMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setFabMenu(false)} />
@@ -552,10 +742,10 @@ export default function RecordsView({
             }}
           >
             {([
-              ['Заметка', FileText, () => { setFolder('notes'); createNote() }],
+              ['Заметка', FileText, () => createNote()],
               ['Чек-лист', ListChecks, () => createRec('checklist')],
               ['Список', ListOrdered, () => createRec('list')],
-              ['Запись в дневник', BookOpen, () => { setFolder('diary'); setOpenDiaryDate(tk) }],
+              ['Папка', FolderPlus, () => { addFolder(currentFolder); setSettingsOpen(true) }],
             ] as const).map(([label, Icon, fn]) => (
               <button
                 key={label}
@@ -571,35 +761,35 @@ export default function RecordsView({
         </>
       )}
 
-      {/* мини-меню FAB на «Списках»: Чек-лист / Список */}
-      {listFab && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setListFab(false)} />
-          <div
-            className="fixed right-4 z-50 rounded-2xl py-1.5 fadein"
-            style={{
-              bottom: 'calc(142px + env(safe-area-inset-bottom))',
-              background: 'var(--surface-2)',
-              border: '1px solid var(--line)',
-              minWidth: 190,
-            }}
-          >
-            {([
-              ['Чек-лист', ListChecks, () => createRec('checklist')],
-              ['Список', ListOrdered, () => createRec('list')],
-            ] as const).map(([label, Icon, fn]) => (
-              <button
-                key={label}
-                onClick={() => { setListFab(false); fn() }}
-                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left"
-                style={{ fontSize: 13.5, color: 'var(--light)' }}
-              >
-                <Icon size={15} strokeWidth={1.7} style={{ color: 'var(--accent)' }} />
-                {label}
-              </button>
-            ))}
-          </div>
-        </>
+      {/* настройка папок */}
+      {settingsOpen && (
+        <FolderSettings
+          folders={folders}
+          setFolders={setFolders}
+          renaming={renamingFolder}
+          setRenaming={setRenamingFolder}
+          folderMenu={folderMenu}
+          setFolderMenu={setFolderMenu}
+          onAddFolder={addFolder}
+          onRename={renameFolder}
+          onDelete={deleteFolder}
+          onClose={() => { setSettingsOpen(false); setRenamingFolder(null) }}
+        />
+      )}
+
+      {/* меню папки (внутри настроек) */}
+      {/* шаблон: меню */}
+      {tplMenu && (
+        <ActionSheet
+          title={templates.find((t) => t.id === tplMenu)?.title || 'Шаблон'}
+          onClose={() => setTplMenu(null)}
+          onRename={() => { setOpenTplId(tplMenu) }}
+          renameLabel="Редактировать"
+          onDelete={() => {
+            setTemplates((ts) => ts.filter((t) => t.id !== tplMenu))
+            if (openTplId === tplMenu) setOpenTplId(null)
+          }}
+        />
       )}
 
       {/* погружение: заметка */}
@@ -679,6 +869,21 @@ export default function RecordsView({
           onDelete={() => {
             setListrecs((rs) => rs.filter((r) => r.id !== openRec.id))
             setOpenRecId(null)
+          }}
+        />
+      )}
+
+      {/* погружение: шаблон блока */}
+      {openTpl && (
+        <TemplateEditor
+          tpl={openTpl}
+          onBack={() => setOpenTplId(null)}
+          onHome={onHome}
+          onPatch={(patch) => patchTpl(openTpl.id, patch)}
+          onAddToDay={() => addTemplateToDay(openTpl)}
+          onDelete={() => {
+            setTemplates((ts) => ts.filter((t) => t.id !== openTpl.id))
+            setOpenTplId(null)
           }}
         />
       )}
@@ -796,7 +1001,433 @@ export default function RecordsView({
   )
 }
 
-// карточка записи на вкладке «Списки»: плитка-иконка + заголовок + подпись + счётчик,
+// ─── настройка папок: дерево с подпапками, drag-перестановка, переименование ───
+function FolderSettings({
+  folders,
+  setFolders,
+  renaming,
+  setRenaming,
+  folderMenu,
+  setFolderMenu,
+  onAddFolder,
+  onRename,
+  onDelete,
+  onClose,
+}: {
+  folders: Folder[]
+  setFolders: (f: Folder[] | ((prev: Folder[]) => Folder[])) => void
+  renaming: string | null
+  setRenaming: (id: string | null) => void
+  folderMenu: string | null
+  setFolderMenu: (id: string | null) => void
+  onAddFolder: (parentId: string | null) => void
+  onRename: (id: string, name: string) => void
+  onDelete: (id: string) => void
+  onClose: () => void
+}) {
+  // плоское дерево: порядок массива = порядок среди соседей, отступ = глубина
+  const flat = useMemo(() => {
+    const out: { f: Folder; depth: number }[] = []
+    const validPid = (f: Folder) => (f.parentId && folders.some((x) => x.id === f.parentId) ? f.parentId : null)
+    const walk = (pid: string | null, depth: number) => {
+      folders
+        .filter((f) => validPid(f) === pid)
+        .forEach((f) => {
+          out.push({ f, depth })
+          walk(f.id, depth + 1)
+        })
+    }
+    walk(null, 0)
+    return out
+  }, [folders])
+
+  // перестановка разрешена только между соседями (одна и та же родительская папка)
+  const reorder = (from: number, to: number) => {
+    const a = flat[from]
+    const b = flat[to]
+    if (!a || !b) return
+    const pa = a.f.parentId ?? null
+    const pb = b.f.parentId ?? null
+    if (pa !== pb) return
+    const siblings = folders.filter((f) => (f.parentId ?? null) === pa)
+    const si = siblings.findIndex((f) => f.id === a.f.id)
+    const ti = siblings.findIndex((f) => f.id === b.f.id)
+    if (si < 0 || ti < 0) return
+    const nextSiblings = [...siblings]
+    const [moved] = nextSiblings.splice(si, 1)
+    nextSiblings.splice(ti, 0, moved)
+    const sibIds = new Set(siblings.map((f) => f.id))
+    const firstIdx = folders.findIndex((f) => sibIds.has(f.id))
+    const rest = folders.filter((f) => !sibIds.has(f.id))
+    rest.splice(Math.min(firstIdx, rest.length), 0, ...nextSiblings)
+    setFolders(rest)
+  }
+
+  const drag = useDragList({
+    onReorder: reorder,
+    onLongPress: (i) => {
+      const row = flat[i]
+      if (row) setFolderMenu(row.f.id)
+    },
+  })
+
+  return (
+    <div className="fixed inset-0 z-[70]">
+      <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
+      <div
+        className="absolute inset-x-0 bottom-0 top-14 rounded-t-2xl overflow-y-auto"
+        style={{ background: 'var(--bg, var(--surface))', border: '1px solid var(--line)', borderBottom: 'none' }}
+      >
+        <div className="px-4 pt-4 pb-24">
+          <div className="flex items-center justify-between mb-1">
+            <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 700, color: 'var(--light)' }}>
+              Папки записей
+            </h2>
+            <button onClick={onClose} className="p-1" style={{ color: 'var(--muted)' }}>
+              <X size={20} strokeWidth={1.8} />
+            </button>
+          </div>
+          <p className="mb-4" style={{ fontSize: 12, color: 'var(--muted)' }}>
+            Папки и подпапки. Перетаскивай удержанием, три точки — настройки папки.
+          </p>
+
+          <div {...drag.containerProps} className="space-y-2">
+            {flat.length === 0 && (
+              <p className="py-6 text-center" style={{ fontSize: 13, color: 'var(--muted)' }}>
+                Нет папок — создай первую
+              </p>
+            )}
+            {flat.map(({ f, depth }, idx) => (
+              <div
+                key={f.id}
+                {...drag.bindRow(idx)}
+                className="flex items-center gap-2 rounded-xl px-3 py-2.5"
+                style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--line)',
+                  marginLeft: depth * 20,
+                  ...drag.rowStyle(idx),
+                }}
+              >
+                <FolderIcon size={15} strokeWidth={1.8} style={{ color: 'var(--f-environment)', flex: 'none' }} />
+                {renaming === f.id ? (
+                  <input
+                    defaultValue={f.name}
+                    autoFocus
+                    onBlur={(e) => { onRename(f.id, e.target.value); setRenaming(null) }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === 'Escape') {
+                        if (e.key === 'Enter') onRename(f.id, (e.target as HTMLInputElement).value)
+                        setRenaming(null)
+                      }
+                    }}
+                    className="flex-1 min-w-0 rounded-lg px-2 py-1 outline-none"
+                    style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', color: 'var(--light)', fontSize: 14 }}
+                  />
+                ) : (
+                  <span className="flex-1 min-w-0 truncate" style={{ fontSize: 14, fontWeight: 600, color: 'var(--light)' }}>
+                    {f.name}
+                  </span>
+                )}
+                <button onClick={() => setFolderMenu(f.id)} className="p-1" style={{ color: 'var(--muted)' }}>
+                  <MoreHorizontal size={17} strokeWidth={1.8} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={() => onAddFolder(null)}
+            className="mt-3 w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl"
+            style={{ background: 'var(--accent)', color: 'var(--on-fill)', fontSize: 13, fontWeight: 600 }}
+          >
+            <Plus size={15} strokeWidth={2} /> Папка
+          </button>
+        </div>
+      </div>
+
+      {folderMenu && (
+        <ActionSheet
+          title={folders.find((f) => f.id === folderMenu)?.name || 'Папка'}
+          onClose={() => setFolderMenu(null)}
+          onRename={() => setRenaming(folderMenu)}
+          extras={[
+            { icon: FolderPlus, label: 'Добавить подпапку', onClick: () => onAddFolder(folderMenu) },
+          ]}
+          onDelete={() => onDelete(folderMenu)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── редактор шаблона блока ───
+function TemplateEditor({
+  tpl,
+  onBack,
+  onHome,
+  onPatch,
+  onAddToDay,
+  onDelete,
+}: {
+  tpl: BlockTemplate
+  onBack: () => void
+  onHome: () => void
+  onPatch: (patch: Partial<BlockTemplate>) => void
+  onAddToDay: () => void
+  onDelete: () => void
+}) {
+  const [editItemId, setEditItemId] = useState<string | null>(null)
+
+  const patchItem = (itemId: string, patch: Partial<BlockItem>) =>
+    onPatch({ items: tpl.items.map((x) => (x.id === itemId ? { ...x, ...patch } : x)) })
+
+  const addItem = () => {
+    const it: BlockItem = { id: uid(), text: '', done: false, ...(tpl.withTime ? { time: '12:00' } : {}) }
+    onPatch({ items: [...tpl.items, it] })
+    setEditItemId(it.id)
+  }
+
+  const addList = (kind: 'checklist' | 'list') => {
+    const l: BlockList = { id: uid(), kind, title: '', items: [] }
+    onPatch({ lists: [...tpl.lists, l] })
+  }
+
+  const patchList = (listId: string, patch: Partial<BlockList>) =>
+    onPatch({ lists: tpl.lists.map((l) => (l.id === listId ? { ...l, ...patch } : l)) })
+
+  const itemsDrag = useDragList({
+    onReorder: (from, to) => onPatch({ items: moveItem(tpl.items, from, to) }),
+    onLongPress: () => {},
+  })
+
+  return (
+    <Immersion
+      title={tpl.title || 'Шаблон блока'}
+      onBack={onBack}
+      onHome={onHome}
+      onMic={() => {}}
+      menu={[
+        { label: 'Добавить в сегодня', icon: CalendarPlus, onClick: onAddToDay },
+        { label: 'Удалить шаблон', icon: Trash2, onClick: onDelete },
+      ]}
+    >
+      <div className="px-5 py-4 pb-24">
+        <input
+          value={tpl.title}
+          onChange={(e) => onPatch({ title: e.target.value })}
+          placeholder="Название блока"
+          className="w-full bg-transparent outline-none"
+          style={{ fontFamily: 'var(--font-body)', fontSize: 22, fontWeight: 700, color: 'var(--light)' }}
+        />
+
+        {/* флаги блока */}
+        <div className="flex flex-wrap gap-2 mt-3 mb-5">
+          <button
+            onClick={() => onPatch({ withTime: !tpl.withTime })}
+            className="px-3 py-1.5 rounded-full"
+            style={{
+              background: tpl.withTime ? 'var(--accent)' : 'var(--surface-2)',
+              color: tpl.withTime ? 'var(--on-fill)' : 'var(--muted)',
+              border: '1px solid var(--line)',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            Со временем
+          </button>
+          <button
+            onClick={() => onPatch({ inDashboard: !tpl.inDashboard })}
+            className="px-3 py-1.5 rounded-full"
+            style={{
+              background: tpl.inDashboard ? 'var(--accent)' : 'var(--surface-2)',
+              color: tpl.inDashboard ? 'var(--on-fill)' : 'var(--muted)',
+              border: '1px solid var(--line)',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            В дашборд
+          </button>
+        </div>
+
+        {/* пункты */}
+        <div {...itemsDrag.containerProps}>
+          {tpl.items.map((it, idx) => (
+            <TemplateItemRow
+              key={it.id}
+              it={it}
+              editing={editItemId === it.id}
+              onEdit={() => setEditItemId(it.id)}
+              onDoneEdit={() => setEditItemId(null)}
+              onPatch={(p) => patchItem(it.id, p)}
+              onDelete={() => onPatch({ items: tpl.items.filter((x) => x.id !== it.id) })}
+              dragBind={itemsDrag.bindRow(idx)}
+              dragStyle={itemsDrag.rowStyle(idx)}
+            />
+          ))}
+        </div>
+
+        {/* списки */}
+        {tpl.lists.map((l) => (
+          <TemplateListCard
+            key={l.id}
+            list={l}
+            onPatch={(p) => patchList(l.id, p)}
+            onDelete={() => onPatch({ lists: tpl.lists.filter((x) => x.id !== l.id) })}
+          />
+        ))}
+
+        {/* добавление */}
+        <div className="flex flex-wrap gap-2 mt-4">
+          <AddChip label="пункт" onClick={addItem} />
+          <AddChip label="чек-лист" onClick={() => addList('checklist')} />
+          <AddChip label="список" onClick={() => addList('list')} />
+        </div>
+      </div>
+    </Immersion>
+  )
+}
+
+function AddChip({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="px-3 py-1.5 rounded-full"
+      style={{ background: 'var(--surface-2)', border: '1px dashed var(--line-strong)', fontSize: 12, color: 'var(--muted)' }}
+    >
+      + {label}
+    </button>
+  )
+}
+
+// строка пункта шаблона: редактирование только по тапу на текст
+function TemplateItemRow({
+  it,
+  editing,
+  onEdit,
+  onDoneEdit,
+  onPatch,
+  onDelete,
+  dragBind,
+  dragStyle,
+}: {
+  it: BlockItem
+  editing: boolean
+  onEdit: () => void
+  onDoneEdit: () => void
+  onPatch: (p: Partial<BlockItem>) => void
+  onDelete: () => void
+  dragBind: Record<string, unknown>
+  dragStyle: React.CSSProperties
+}) {
+  return (
+    <div
+      {...dragBind}
+      className="flex items-center gap-2.5 py-2"
+      style={dragStyle}
+    >
+      <MCheck done={false} color="var(--accent)" size={16} />
+      {editing ? (
+        <input
+          defaultValue={it.text}
+          autoFocus
+          onBlur={(e) => { onPatch({ text: e.target.value }); onDoneEdit() }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === 'Escape') {
+              if (e.key === 'Enter') onPatch({ text: (e.target as HTMLInputElement).value })
+              onDoneEdit()
+            }
+          }}
+          className="flex-1 min-w-0 rounded-lg px-2 py-1 outline-none"
+          style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', color: 'var(--light)', fontSize: 14 }}
+        />
+      ) : (
+        <button onClick={onEdit} className="flex-1 min-w-0 text-left truncate" style={{ fontSize: 14, color: 'var(--text-2)' }}>
+          {it.text || 'Пункт — нажми, чтобы заполнить'}
+        </button>
+      )}
+      <button onClick={onDelete} className="flex-none p-1" style={{ color: 'var(--muted)' }}>
+        <X size={14} strokeWidth={1.8} />
+      </button>
+    </div>
+  )
+}
+
+// карточка вложенного списка шаблона: название + пункты (один уровень)
+function TemplateListCard({
+  list,
+  onPatch,
+  onDelete,
+}: {
+  list: BlockList
+  onPatch: (p: Partial<BlockList>) => void
+  onDelete: () => void
+}) {
+  const [editItemId, setEditItemId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState(false)
+
+  const addItem = () => {
+    const it: BlockItem = { id: uid(), text: '', done: false }
+    onPatch({ items: [...list.items, it] })
+    setEditItemId(it.id)
+  }
+
+  const drag = useDragList({
+    onReorder: (from, to) => onPatch({ items: moveItem(list.items, from, to) }),
+    onLongPress: () => {},
+  })
+
+  const Icon = list.kind === 'checklist' ? ListChecks : ListOrdered
+
+  return (
+    <div className="rounded-2xl p-3 mt-3" style={{ background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
+      <div className="flex items-center gap-2 mb-1">
+        <Icon size={15} strokeWidth={1.8} style={{ color: 'var(--accent)', flex: 'none' }} />
+        {editTitle ? (
+          <input
+            defaultValue={list.title}
+            autoFocus
+            onBlur={(e) => { onPatch({ title: e.target.value }); setEditTitle(false) }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === 'Escape') {
+                if (e.key === 'Enter') onPatch({ title: (e.target as HTMLInputElement).value })
+                setEditTitle(false)
+              }
+            }}
+            className="flex-1 min-w-0 rounded-lg px-2 py-0.5 outline-none"
+            style={{ background: 'var(--surface)', border: '1px solid var(--line)', color: 'var(--light)', fontSize: 13.5 }}
+          />
+        ) : (
+          <button onClick={() => setEditTitle(true)} className="flex-1 min-w-0 text-left" style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--light)' }}>
+            {list.title || (list.kind === 'checklist' ? 'Чек-лист' : 'Список')}
+          </button>
+        )}
+        <button onClick={onDelete} className="p-1" style={{ color: 'var(--muted)' }}>
+          <Trash2 size={14} strokeWidth={1.8} />
+        </button>
+      </div>
+      <div {...drag.containerProps}>
+        {list.items.map((it, idx) => (
+          <TemplateItemRow
+            key={it.id}
+            it={it}
+            editing={editItemId === it.id}
+            onEdit={() => setEditItemId(it.id)}
+            onDoneEdit={() => setEditItemId(null)}
+            onPatch={(p) => onPatch({ items: list.items.map((x) => (x.id === it.id ? { ...x, ...p } : x)) })}
+            onDelete={() => onPatch({ items: list.items.filter((x) => x.id !== it.id) })}
+            dragBind={drag.bindRow(idx)}
+            dragStyle={drag.rowStyle(idx)}
+          />
+        ))}
+      </div>
+      <AddChip label="пункт" onClick={addItem} />
+    </div>
+  )
+}
+
+// карточка записи: плитка-иконка + заголовок + подпись + счётчик,
 // ниже — превью до 5 пунктов (у чек-листа чекбоксы интерактивны);
 // вложенные подблоки — заголовок с прогрессом + до 4 пунктов с чекбоксами
 function ListRecCard({
