@@ -110,6 +110,16 @@ const scopeOf = (f: Folder, folders: Folder[]): 'records' | 'blocks' => {
   return 'records'
 }
 
+// корень-раздел ветки папки: папка-раздел среди предков (включая саму) или null
+const sectionRootOf = (f: Folder, folders: Folder[]): Folder | null => {
+  let cur: Folder | undefined = f
+  while (cur) {
+    if (cur.section) return cur
+    cur = folders.find((x) => x.id === cur!.parentId)
+  }
+  return null
+}
+
 export default function RecordsView({
   onHome,
 }: {
@@ -199,7 +209,6 @@ export default function RecordsView({
   const [openTplId, setOpenTplId] = useState<string | null>(null)
   const [fabMenu, setFabMenu] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [addRowOpen, setAddRowOpen] = useState<'base' | 'sub' | null>(null) // у какой строки папок раскрыто добавление
   const [sectionAddOpen, setSectionAddOpen] = useState(false)
   const [sectionMenu, setSectionMenu] = useState<string | null>(null)
   const [folderMenu, setFolderMenu] = useState<string | null>(null)
@@ -222,18 +231,12 @@ export default function RecordsView({
   const viewKind: Section = isStandardSection ? (section as Section) : 'records'
   const scope: 'records' | 'blocks' = viewKind === 'blocks' ? 'blocks' : 'records'
   const baseLen = customSection ? 1 : 0
-  const baseParent = customSection ? customSection.id : null
-  // вторая строка папок: корневые папки раздела (папки-разделы среди них не показываем)
-  const baseFolders = folders.filter(
-    (f) => normFolderId(f.parentId, folders) === baseParent && scopeOf(f, folders) === scope && !f.section,
-  )
   const customSections = folders.filter((f) => f.section)
 
   const switchSection = (id: string) => {
     setSection(id)
     const f = folders.find((x) => x.id === id && x.section)
     setPath(f ? [f.id] : [])
-    setAddRowOpen(null)
     // редактор открыт инлайн — при смене раздела закрываем его
     closeEditors()
   }
@@ -318,14 +321,24 @@ export default function RecordsView({
     [folders, currentFolder, viewKind, scope], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
-  // ─── 3 статичные категории внутри папки: Все / Не сортировано / Папки ───
+  // ─── 3 статичные категории раздела: Все / Не сортировано / Папки ───
+  // одинаковые на корне раздела и внутри любой папки
   type FolderTab = 'all' | 'unsorted' | 'folders'
   const [folderTab, setFolderTab] = useState<FolderTab>('all')
   const drilled = path.length > baseLen
   // при погружении/выходе всегда начинаем с «Все»
   useEffect(() => setFolderTab('all'), [currentFolder])
 
-  // текущая папка + все потомки — для категории «Все»
+  // id папок текущего scope без веток пользовательских разделов — для «Все» на корне раздела
+  const scopeFolderIds = useMemo(() => {
+    const set = new Set<string>()
+    folders.forEach((f) => {
+      if (scopeOf(f, folders) === scope && !sectionRootOf(f, folders)) set.add(f.id)
+    })
+    return set
+  }, [folders, scope])
+
+  // текущая папка + все потомки — для категории «Все» при погружении
   const descendantIds = useMemo(() => {
     const set = new Set<string>()
     if (currentFolder) set.add(currentFolder)
@@ -342,13 +355,20 @@ export default function RecordsView({
     return set
   }, [folders, currentFolder])
 
+  // «Все»: на корне — всё содержимое раздела (включая папки), внутри папки — она сама + потомки
+  const inAll = (fid: string | undefined): boolean => {
+    const n = normFolderId(fid, folders)
+    if (currentFolder) return n !== null && descendantIds.has(n)
+    return n === null || scopeFolderIds.has(n)
+  }
+
   const notesAll = useMemo(
-    () => sortedNotes.filter((n) => descendantIds.has(normFolderId(n.folderId, folders) ?? '')),
-    [sortedNotes, folders, descendantIds],
+    () => sortedNotes.filter((n) => inAll(n.folderId)),
+    [sortedNotes, folders, descendantIds, scopeFolderIds, currentFolder], // eslint-disable-line react-hooks/exhaustive-deps
   )
   const recsAll = useMemo(
-    () => sortedRecs.filter((r) => descendantIds.has(normFolderId(r.folderId, folders) ?? '')),
-    [sortedRecs, folders, descendantIds],
+    () => sortedRecs.filter((r) => inAll(r.folderId)),
+    [sortedRecs, folders, descendantIds, scopeFolderIds, currentFolder], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   // редактор открыт инлайн: верх (разделы, папки, настройки) остаётся виден
@@ -379,8 +399,8 @@ export default function RecordsView({
     [sortedTemplates, folders, currentFolder],
   )
   const templatesAll = useMemo(
-    () => sortedTemplates.filter((t) => descendantIds.has(normFolderId(t.folderId, folders) ?? '')),
-    [sortedTemplates, folders, descendantIds],
+    () => sortedTemplates.filter((t) => inAll(t.folderId)),
+    [sortedTemplates, folders, descendantIds, scopeFolderIds, currentFolder], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   // ─── свайп разделов ───
@@ -638,7 +658,7 @@ export default function RecordsView({
                   t.lists.length > 0 ? `${t.lists.length} списков` : '',
                   t.withTime ? 'со временем' : '',
                   t.inDashboard ? 'в дашборд' : '',
-                  folderTab === 'all' && drilled ? folderName(t.folderId) : '',
+                  folderTab === 'all' ? folderName(t.folderId) : '',
                 ].filter(Boolean).join(' · ')}
               </span>
             </span>
@@ -660,63 +680,6 @@ export default function RecordsView({
     )
   }
 
-
-  // вторая строка: корневые папки раздела (всегда видна, даже в редакторе);
-  // тап — внутрь (повторный тап по активной — обратно на корень), long-press — настройка папки;
-  // «+» в конце раскрывает «добавить папку»
-  const renderBaseRow = () => {
-    const open = addRowOpen === 'base'
-    return (
-      <div className="no-scrollbar -mx-4 px-4 mb-3 flex items-center gap-1.5 overflow-x-auto">
-        {baseFolders.map((f) =>
-          renamingFolder === f.id ? (
-            <input
-              key={f.id}
-              autoFocus
-              defaultValue={f.name}
-              onBlur={(e) => { renameFolder(f.id, e.target.value); setRenamingFolder(null) }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === 'Escape') {
-                  renameFolder(f.id, (e.target as HTMLInputElement).value)
-                  setRenamingFolder(null)
-                }
-              }}
-              className="flex-none rounded-full px-3 py-1.5 outline-none"
-              style={{ background: 'var(--surface)', border: '1px solid var(--accent)', fontSize: 12.5, fontWeight: 600, color: 'var(--light)', width: 120 }}
-            />
-          ) : (
-            <FolderChip
-              key={f.id}
-              label={f.name}
-              active={path[baseLen] === f.id && path.length > baseLen}
-              onClick={() => {
-                if (path[baseLen] === f.id) setPath(path.slice(0, baseLen))
-                else setPath([...path.slice(0, baseLen), f.id])
-              }}
-              onLongPress={() => setFolderMenu(f.id)}
-            />
-          ),
-        )}
-        <button
-          onClick={() => setAddRowOpen(open ? null : 'base')}
-          className="flex-none grid place-items-center rounded-full"
-          style={{ width: 30, height: 30, background: 'var(--surface)', border: '1px solid var(--line)' }}
-          title={open ? 'Скрыть добавление' : 'Добавить папку'}
-        >
-          <Plus size={15} strokeWidth={2} style={{ color: open ? 'var(--accent)' : 'var(--muted)' }} />
-        </button>
-        {open && (
-          <button
-            onClick={() => { addFolder(baseParent, scope); setAddRowOpen(null) }}
-            className="flex-none flex items-center gap-1.5 rounded-full px-3 py-1.5 fadein"
-            style={{ background: 'var(--accent)', color: 'var(--on-fill)', fontSize: 12.5, fontWeight: 600 }}
-          >
-            <FolderPlus size={13} strokeWidth={2} /> добавить папку
-          </button>
-        )}
-      </div>
-    )
-  }
 
   // третья линия при погружении: назад + цепочка от первой папки до текущей
   const renderChainRow = () => (
@@ -771,11 +734,15 @@ export default function RecordsView({
     </div>
   )
 
-  // категория «Папки»: подпапки текущей — вертикальным столбиком, тап проваливает внутрь
+  // категория «Папки»: папки текущего уровня — вертикальным столбиком, тап проваливает внутрь;
+  // папки-разделы (первая строка) сюда не попадают
+  const columnFolders = subfolders.filter((f) => !f.section)
   const renderFolderColumn = () => (
     <div className="space-y-2">
-      {subfolders.length === 0 && <Empty text="Нет подпапок — добавь первую ниже" />}
-      {subfolders.map((f) => (
+      {columnFolders.length === 0 && (
+        <Empty text={drilled ? 'Нет подпапок — добавь первую ниже' : 'Нет папок — добавь первую ниже'} />
+      )}
+      {columnFolders.map((f) => (
         <FolderColRow
           key={f.id}
           folder={f}
@@ -881,80 +848,63 @@ export default function RecordsView({
       </div>
 
       <div key={section} className="fadein" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        {/* ─── Записи: строки папок + содержимое текущей папки ─── */}
+        {/* ─── Записи: 3 категории (Все / Не сортировано / Папки) + содержимое ─── */}
         {viewKind === 'records' && (
           <>
-            {renderBaseRow()}
             {drilled && renderChainRow()}
-            {drilled && !editorOpen && renderFolderTabs()}
+            {!editorOpen && renderFolderTabs()}
 
             {!editorOpen && (
               <div className="space-y-2.5">
-                {!drilled && (
+                {folderTab === 'all' && (
                   <>
-                    {baseFolders.length === 0 && notesHere.length === 0 && recsHere.length === 0 && (
-                      <Empty text="Пока пусто — создай запись или папку через +" />
-                    )}
-                    {notesHere.map(renderNoteRow)}
-                    {recsHere.map(renderRecCard)}
-                  </>
-                )}
-                {drilled && folderTab === 'all' && (
-                  <>
-                    {notesAll.length === 0 && recsAll.length === 0 && subfolders.length === 0 && (
-                      <Empty text="В папке и подпапках пусто — добавь через +" />
+                    {notesAll.length === 0 && recsAll.length === 0 && columnFolders.length === 0 && (
+                      <Empty text={drilled ? 'В папке и подпапках пусто — добавь через +' : 'Пока пусто — создай запись или папку через +'} />
                     )}
                     {notesAll.map(renderNoteRow)}
                     {recsAll.map(renderRecCard)}
                   </>
                 )}
-                {drilled && folderTab === 'unsorted' && (
+                {folderTab === 'unsorted' && (
                   <>
                     {notesHere.length === 0 && recsHere.length === 0 && (
-                      <Empty text="Прямо в этой папке пусто" />
+                      <Empty text={drilled ? 'Прямо в этой папке пусто' : 'Нет записей вне папок'} />
                     )}
                     {notesHere.map(renderNoteRow)}
                     {recsHere.map(renderRecCard)}
                   </>
                 )}
-                {drilled && folderTab === 'folders' && renderFolderColumn()}
+                {folderTab === 'folders' && renderFolderColumn()}
               </div>
             )}
           </>
         )}
 
-        {/* ─── Блоки: папки с шаблонами для добавления в день ─── */}
+        {/* ─── Блоки: те же 3 категории для шаблонов ─── */}
         {viewKind === 'blocks' && (
           <>
-            {renderBaseRow()}
             {drilled && renderChainRow()}
-            {drilled && !editorOpen && renderFolderTabs()}
+            {!editorOpen && renderFolderTabs()}
 
             {!editorOpen && (
               <div className="space-y-2.5">
-                {!drilled && (
+                {folderTab === 'all' && (
                   <>
-                    {baseFolders.length === 0 && templatesHere.length === 0 && (
-                      <Empty text="Нет шаблонов — создай первый через +" />
-                    )}
-                    {templatesHere.map(renderTplCard)}
-                  </>
-                )}
-                {drilled && folderTab === 'all' && (
-                  <>
-                    {templatesAll.length === 0 && subfolders.length === 0 && (
-                      <Empty text="В папке и подпапках пусто — создай шаблон через +" />
+                    {templatesAll.length === 0 && columnFolders.length === 0 && (
+                      <Empty text={drilled ? 'В папке и подпапках пусто — создай шаблон через +' : 'Нет шаблонов — создай первый через +'} />
                     )}
                     {templatesAll.map(renderTplCard)}
                   </>
                 )}
-                {drilled && folderTab === 'unsorted' && (
+                {folderTab === 'unsorted' && (
                   <>
-                    {templatesHere.length === 0 && <Empty text="Прямо в этой папке пусто" />}
+                    {templatesHere.length === 0 && (
+                      <Empty text={drilled ? 'Прямо в этой папке пусто' : 'Нет шаблонов вне папок'} />
+                    )}
                     {templatesHere.map(renderTplCard)}
                   </>
                 )}
-                {drilled && folderTab === 'folders' && renderFolderColumn()}
+                {folderTab === 'folders' && renderFolderColumn()}
               </div>
             )}
           </>
