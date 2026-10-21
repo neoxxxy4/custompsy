@@ -96,6 +96,7 @@ export interface BlockDef {
   inDashboard: boolean     // «Показывать в дашборде» (кольцо в «Прогресс дня»)
   hideDone?: boolean       // «Скрыть выполненные»: галочки не рисуются, но хранятся и считаются
   allow: { items: boolean; checklists: boolean; lists: boolean; sub: boolean }  // «Состав блока»
+  templateId?: string      // шаблон из раздела «Блоки», из которого создан блок (меню: «Обновить шаблон»)
 }
 
 // status — колонка канбана для невыполненных пунктов ('done' выводится из done)
@@ -142,11 +143,17 @@ export interface BlockTemplate {
   title: string
   withTime: boolean
   inDashboard: boolean
+  // «Состав блока» — что можно добавлять в блок, созданный из шаблона
+  // (у старых записей в localStorage поля нет → считается, что всё разрешено)
+  allow?: { items: boolean; checklists: boolean; lists: boolean; sub: boolean }
   items: BlockItem[]
   lists: BlockList[]
   folderId?: string    // папка в разделе «Блоки»; нет/неизвестная — корень
   updated: number
 }
+
+// полный состав блока: дефолт для новых блоков и шаблонов
+export const FULL_ALLOW = { items: true, checklists: true, lists: true, sub: true }
 
 // клонирование содержимого шаблона в день: свежие id, галочки сброшены
 export const cloneTemplateItems = (items: BlockItem[], withTime: boolean): BlockItem[] =>

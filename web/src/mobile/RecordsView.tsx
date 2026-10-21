@@ -45,6 +45,7 @@ import {
   type ListRecord,
   type Note,
   type TodayData,
+  FULL_ALLOW,
   SEED_BLOCK_FOLDERS,
   SEED_FOLDERS,
   SEED_NOTES,
@@ -59,7 +60,7 @@ import Immersion from './Immersion'
 import ListRecordEditor from './ListRecordEditor'
 import ActionSheet from './ActionSheet'
 import { useDragList } from './useDragList'
-import { MCheck, Tile } from './ui'
+import { MCheck, Tile, Toggle } from './ui'
 import { fmtWhen, useToast } from './utils'
 
 // верхние разделы «Записей»
@@ -377,6 +378,7 @@ export default function RecordsView({
       title: '',
       withTime: false,
       inDashboard: true,
+      allow: { ...FULL_ALLOW },
       items: [],
       lists: [],
       ...(currentFolder ? { folderId: currentFolder } : {}),
@@ -402,7 +404,8 @@ export default function RecordsView({
   const patchDiary = (dk: string, p: Partial<Diary[string]>) =>
     setDiary((d) => ({ ...d, [dk]: { ...diaryEntry(dk), ...p, updated: Date.now() } }))
 
-  // шаблон → блок сегодняшнего дня (пункты клонируются, галочки сброшены)
+  // шаблон → блок сегодняшнего дня (пункты клонируются, галочки сброшены);
+  // templateId связывает блок с шаблоном — в меню блока дня есть «Обновить шаблон»
   const addTemplateToDay = (tpl: BlockTemplate) => {
     const now = new Date()
     const wdName = WD[now.getDay()]
@@ -415,7 +418,8 @@ export default function RecordsView({
       title: tpl.title,
       withTime: tpl.withTime,
       inDashboard: tpl.inDashboard,
-      allow: { items: true, checklists: true, lists: true, sub: true },
+      allow: { ...(tpl.allow ?? FULL_ALLOW) },
+      templateId: tpl.id,
     }
     writeLS(defsKey, [...defs, def])
     writeLS(dataKey, {
@@ -1448,6 +1452,16 @@ function TemplateEditor({
   onDelete: () => void
 }) {
   const [editItemId, setEditItemId] = useState<string | null>(null)
+  // состав блока — как в меню блока «Прогресса»; у старых шаблонов поля нет → всё разрешено
+  const allow = tpl.allow ?? FULL_ALLOW
+  const setAllow = (key: keyof typeof FULL_ALLOW, v: boolean) =>
+    onPatch({ allow: { ...allow, [key]: v } })
+  const allowRows: { key: keyof typeof FULL_ALLOW; label: string }[] = [
+    { key: 'checklists', label: 'Чек-листы' },
+    { key: 'sub', label: 'Подблоки' },
+    { key: 'lists', label: 'Списки' },
+    { key: 'items', label: 'Пункты' },
+  ]
 
   const patchItem = (itemId: string, patch: Partial<BlockItem>) =>
     onPatch({ items: tpl.items.map((x) => (x.id === itemId ? { ...x, ...patch } : x)) })
@@ -1492,7 +1506,7 @@ function TemplateEditor({
         />
 
         {/* флаги блока */}
-        <div className="flex flex-wrap gap-2 mt-3 mb-5">
+        <div className="flex flex-wrap gap-2 mt-3 mb-3">
           <button
             onClick={() => onPatch({ withTime: !tpl.withTime })}
             className="px-3 py-1.5 rounded-full"
@@ -1519,6 +1533,25 @@ function TemplateEditor({
           >
             В дашборд
           </button>
+        </div>
+
+        {/* состав блока — те же переключатели, что в меню блока в «Прогрессе»;
+            переносятся в блок дня при добавлении из шаблона */}
+        <div
+          className="mb-5 rounded-2xl px-3 py-2"
+          style={{ background: 'var(--surface-2)', border: '1px solid var(--line)' }}
+        >
+          <p className="pt-1 pb-1" style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Состав блока
+          </p>
+          {allowRows.map((r) => (
+            <div key={r.key} className="flex items-center gap-3 py-2">
+              <span className="flex-1" style={{ fontSize: 14, color: 'var(--text-2)' }}>
+                {r.label}
+              </span>
+              <Toggle on={allow[r.key]} onChange={(v) => setAllow(r.key, v)} />
+            </div>
+          ))}
         </div>
 
         {/* пункты */}
@@ -1548,12 +1581,12 @@ function TemplateEditor({
           />
         ))}
 
-        {/* добавление — как в блоке дня */}
+        {/* добавление — как в блоке дня; скрытое в «Составе блока» не предлагается */}
         <div className="mt-4">
-          <TplAddRow label="добавить пункт" onClick={addItem} />
-          <TplAddRow label="добавить подблок" onClick={() => addList('sub')} />
-          <TplAddRow label="добавить чек-лист" onClick={() => addList('checklist')} />
-          <TplAddRow label="добавить список" onClick={() => addList('list')} />
+          {allow.items && <TplAddRow label="добавить пункт" onClick={addItem} />}
+          {allow.sub && <TplAddRow label="добавить подблок" onClick={() => addList('sub')} />}
+          {allow.checklists && <TplAddRow label="добавить чек-лист" onClick={() => addList('checklist')} />}
+          {allow.lists && <TplAddRow label="добавить список" onClick={() => addList('list')} />}
         </div>
       </div>
     </Immersion>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, EyeOff, LayoutDashboard, ListTree, Pencil, Trash2, type LucideIcon } from 'lucide-react'
+import { ChevronDown, EyeOff, LayoutDashboard, ListTree, Pencil, RefreshCw, Save, Trash2, type LucideIcon } from 'lucide-react'
 import type { BlockDef } from '../views/practice/store'
 import { Toggle } from './ui'
 
@@ -37,11 +37,15 @@ export default function BlockMenu({
   onClose,
   onPatch,
   onDelete,
+  onSaveTemplate,
+  onUpdateTemplate,
 }: {
   def: BlockDef
   onClose: () => void
   onPatch: (patch: Partial<BlockDef>) => void
   onDelete: () => void
+  onSaveTemplate?: () => void   // «Сохранить как шаблон» — любой блок → новый шаблон в разделе «Блоки»
+  onUpdateTemplate?: () => void // «Обновить шаблон» — только у блоков, созданных из живого шаблона
 }) {
   const [mounted, setMounted] = useState(false)
   const [exiting, setExiting] = useState(false)
@@ -150,6 +154,12 @@ export default function BlockMenu({
               label="Скрыть выполненные"
               right={<Toggle on={!!def.hideDone} onChange={(v) => onPatch({ hideDone: v })} />}
             />
+            {onUpdateTemplate && (
+              <MenuRow icon={RefreshCw} label="Обновить шаблон" onClick={() => { onUpdateTemplate(); close() }} />
+            )}
+            {onSaveTemplate && (
+              <MenuRow icon={Save} label="Сохранить как шаблон" onClick={() => { onSaveTemplate(); close() }} />
+            )}
             <MenuRow icon={Trash2} label="Удалить блок" danger onClick={() => setConfirming(true)} />
             <button
               onClick={close}

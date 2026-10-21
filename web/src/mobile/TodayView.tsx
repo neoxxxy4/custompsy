@@ -33,6 +33,7 @@ import {
   type BlockTemplate,
   type ListRecord,
   type TodayData,
+  FULL_ALLOW,
   cloneTemplateItems,
   cloneTemplateList,
   moveItem,
@@ -178,8 +179,9 @@ export default function TodayView() {
   // PickListSheet работает только с записями «Записей»: чек-лист или нумерованный список (подблоки создаются напрямую)
   const [pickList, setPickList] = useState<{ def: BlockDef; kind: 'checklist' | 'list' } | null>(null)
   const [blockSettingsOpen, setBlockSettingsOpen] = useState(false)
-  // шаблоны блоков из раздела «Блоки» в «Записях» — добавляются в день из настроек блоков
-  const [templates] = useLS<BlockTemplate[]>('aod4-block-templates', [])
+  // шаблоны блоков из раздела «Блоки» в «Записях» — добавляются в день из настроек блоков;
+  // сеттер нужен для «Сохранить как шаблон» / «Обновить шаблон» из меню блока
+  const [templates, setTemplates] = useLS<BlockTemplate[]>('aod4-block-templates', [])
   const [ringsOpen, setRingsOpen] = useState(false)
   const [goalsOpen, setGoalsOpen] = useState(true)
   const [dayAddOpen, setDayAddOpen] = useState(false)
@@ -316,14 +318,16 @@ export default function TodayView() {
   const patchDef = (id: string, patch: Partial<BlockDef>) =>
     setDefs((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)))
   const deleteDef = (id: string) => setDefs((ds) => ds.filter((d) => d.id !== id))
-  // новый блок — крайний снизу, но перед полностью выполненными; возвращает id (для режима «Доска»)
+  // новый блок — крайний снизу, но перед полностью выполненными; возвращает id (для режима «Доска»);
+  // состав по умолчанию полный: иначе в панели добавления доступен только подблок,
+  // и пользователь нечаянно создаёт подблоки вместо чек-листов
   const addBlockDef = (): string => {
     const def: BlockDef = {
       id: uid(),
       title: '',
       withTime: false,
       inDashboard: true,
-      allow: { items: true, checklists: false, lists: false, sub: true },
+      allow: { ...FULL_ALLOW },
     }
     setDefs((ds) => {
       const idx = ds.findIndex((d) => {
@@ -338,14 +342,16 @@ export default function TodayView() {
     return def.id
   }
 
-  // шаблон из раздела «Блоки» → новый блок этого дня (клон: свежие id, галочки сброшены)
+  // шаблон из раздела «Блоки» → новый блок этого дня (клон: свежие id, галочки сброшены);
+  // templateId связывает блок с шаблоном — из меню блока можно обновить шаблон
   const addFromTemplate = (tpl: BlockTemplate) => {
     const def: BlockDef = {
       id: uid(),
       title: tpl.title,
       withTime: tpl.withTime,
       inDashboard: tpl.inDashboard,
-      allow: { items: true, checklists: true, lists: true, sub: true },
+      allow: { ...(tpl.allow ?? FULL_ALLOW) },
+      templateId: tpl.id,
     }
     setDefs((ds) => [...ds, def])
     setData((d) => ({
@@ -356,6 +362,36 @@ export default function TodayView() {
       },
     }))
     toast.show(`Блок «${tpl.title || 'Без названия'}» добавлен`)
+  }
+
+  // текущее содержимое блока дня → снимок шаблона (тексты без галочек, свежие id)
+  const templateSnapshot = (def: BlockDef) => {
+    const bd = blockData(def.id)
+    return {
+      title: def.title,
+      withTime: def.withTime,
+      inDashboard: def.inDashboard,
+      allow: { ...def.allow },
+      items: cloneTemplateItems(bd.items, def.withTime),
+      lists: bd.lists.map((l) => cloneTemplateList(l, def.withTime)),
+    }
+  }
+
+  // «Сохранить как шаблон»: блок дня → новый шаблон в разделе «Блоки», связь запоминается
+  const saveBlockAsTemplate = (def: BlockDef) => {
+    const tpl: BlockTemplate = { id: uid(), ...templateSnapshot(def), updated: Date.now() }
+    setTemplates((ts) => [tpl, ...ts])
+    patchDef(def.id, { templateId: tpl.id })
+    toast.show(`Шаблон «${def.title || 'Без названия'}» сохранён`)
+  }
+
+  // «Обновить шаблон»: перезаписать исходный шаблон текущим содержимым блока
+  const updateTemplateFromBlock = (def: BlockDef) => {
+    if (!def.templateId) return
+    setTemplates((ts) =>
+      ts.map((t) => (t.id === def.templateId ? { ...t, ...templateSnapshot(def), updated: Date.now() } : t)),
+    )
+    toast.show(`Шаблон «${def.title || 'Без названия'}» обновлён`)
   }
 
   const jumpTo = (id: string) => {
@@ -1111,6 +1147,12 @@ export default function TodayView() {
           onClose={() => setMenuBlockId(null)}
           onPatch={(patch) => patchDef(menuDef.id, patch)}
           onDelete={() => deleteDef(menuDef.id)}
+          onSaveTemplate={() => saveBlockAsTemplate(menuDef)}
+          onUpdateTemplate={
+            menuDef.templateId && templates.some((t) => t.id === menuDef.templateId)
+              ? () => updateTemplateFromBlock(menuDef)
+              : undefined
+          }
         />
       )}
 
