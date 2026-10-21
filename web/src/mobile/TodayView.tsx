@@ -19,7 +19,10 @@ import {
   MoreHorizontal,
   Plus,
   Rows2,
+  Settings2,
   Target,
+  Trash2,
+  X,
   Clock,
   type LucideIcon,
 } from 'lucide-react'
@@ -27,8 +30,11 @@ import {
   type BlockDef,
   type BlockItem,
   type BlockList,
+  type BlockTemplate,
   type ListRecord,
   type TodayData,
+  cloneTemplateItems,
+  cloneTemplateList,
   moveItem,
   seedDayBlocks,
   seedTodayData,
@@ -60,8 +66,8 @@ type MoveSrc = { blockId: string; listId: string | null; itemId: string }
 
 type Win = 'day' | 'progress' | 'kanban'
 const WINS: { id: Win; label: string }[] = [
-  { id: 'day', label: 'День' },
   { id: 'progress', label: 'Прогресс' },
+  { id: 'day', label: 'День' },
   { id: 'kanban', label: 'Канбан' },
 ]
 
@@ -171,6 +177,9 @@ export default function TodayView() {
   const [sheet, setSheet] = useState<SheetTarget | null>(null)
   // PickListSheet работает только с записями «Записей»: чек-лист или нумерованный список (подблоки создаются напрямую)
   const [pickList, setPickList] = useState<{ def: BlockDef; kind: 'checklist' | 'list' } | null>(null)
+  const [blockSettingsOpen, setBlockSettingsOpen] = useState(false)
+  // шаблоны блоков из раздела «Блоки» в «Записях» — добавляются в день из настроек блоков
+  const [templates] = useLS<BlockTemplate[]>('aod4-block-templates', [])
   const [ringsOpen, setRingsOpen] = useState(false)
   const [goalsOpen, setGoalsOpen] = useState(true)
   const [moveReq, setMoveReq] = useState<MoveSrc | null>(null)
@@ -326,6 +335,26 @@ export default function TodayView() {
       return next
     })
     return def.id
+  }
+
+  // шаблон из раздела «Блоки» → новый блок этого дня (клон: свежие id, галочки сброшены)
+  const addFromTemplate = (tpl: BlockTemplate) => {
+    const def: BlockDef = {
+      id: uid(),
+      title: tpl.title,
+      withTime: tpl.withTime,
+      inDashboard: tpl.inDashboard,
+      allow: { items: true, checklists: true, lists: true, sub: true },
+    }
+    setDefs((ds) => [...ds, def])
+    setData((d) => ({
+      ...d,
+      [def.id]: {
+        items: cloneTemplateItems(tpl.items, tpl.withTime),
+        lists: tpl.lists.map((l) => cloneTemplateList(l, tpl.withTime)),
+      },
+    }))
+    toast.show(`Блок «${tpl.title || 'Без названия'}» добавлен`)
   }
 
   const jumpTo = (id: string) => {
@@ -758,7 +787,6 @@ export default function TodayView() {
                 }
                 onLongPressItem={(itemId, t) => setSheet({ kind: 'item', blockId: 'goals', itemId, title: t })}
               />
-              {!readOnly && <AddRow label="добавить цель" onClick={() => addItem(goalsDef)} />}
             </section>
             <TimelineView
               entries={timelineEntries}
@@ -851,7 +879,7 @@ export default function TodayView() {
                     {!readOnly && <AddRow label="добавить цель" onClick={() => addItem(goalsDef)} />}
                   </ChecklistRow>
                 </div>
-                {/* вид прогресса: список (одна строка) / доска (колонки) */}
+                {/* вид прогресса: список (одна строка) / доска (колонки); шестерёнка — настройка блоков */}
                 <div className="flex-none flex flex-col gap-0.5 pt-1">
                   <button onClick={() => setViewMode('list')} title="Список" className="p-1">
                     <Rows2 size={15} strokeWidth={1.8} style={{ color: viewMode === 'list' ? 'var(--accent)' : 'var(--muted)' }} />
@@ -859,6 +887,11 @@ export default function TodayView() {
                   <button onClick={() => setViewMode('board')} title="Доска" className="p-1">
                     <Columns2 size={15} strokeWidth={1.8} style={{ color: viewMode === 'board' ? 'var(--accent)' : 'var(--muted)' }} />
                   </button>
+                  {!readOnly && (
+                    <button onClick={() => setBlockSettingsOpen(true)} title="Настройка блоков" className="p-1">
+                      <Settings2 size={15} strokeWidth={1.8} style={{ color: 'var(--muted)' }} />
+                    </button>
+                  )}
                 </div>
               </div>
               {/* остальные кольца свернуты: полосочка внизу разворачивает/сворачивает */}
@@ -934,16 +967,6 @@ export default function TodayView() {
                       </button>
                     )
                   })}
-                  {!readOnly && (
-                    <button
-                      onClick={() => setBoardId(addBlockDef())}
-                      className="flex-none rounded-xl px-4 py-1.5 grid place-items-center"
-                      style={{ border: '1px dashed var(--line-strong)', color: 'var(--muted)' }}
-                      title="Новый блок"
-                    >
-                      <Plus size={14} strokeWidth={2} />
-                    </button>
-                  )}
                 </div>
                 <div {...boardSwipe}>{boardActive && renderBlock(boardActive)}</div>
               </>
@@ -958,7 +981,6 @@ export default function TodayView() {
                     style: progDrag.rowStyle(i),
                   })
                 })}
-                {!readOnly && <AddRow label="добавить блок" onClick={addBlockDef} />}
               </div>
             )}
           </>
@@ -973,6 +995,30 @@ export default function TodayView() {
           onNew={() => addList(pickList.def, pickList.kind)}
           onPick={(rec) => insertFromRecord(pickList.def, rec)}
           onClose={() => setPickList(null)}
+        />
+      )}
+
+      {/* настройка блоков дня: добавление (в т.ч. из шаблонов), порядок, переименование, удаление */}
+      {blockSettingsOpen && (
+        <BlockSettings
+          defs={defs.filter((d) => d.id !== 'goals')}
+          templates={templates}
+          onAdd={() => addBlockDef()}
+          onAddTemplate={addFromTemplate}
+          onRename={(id, title) => patchDef(id, { title })}
+          onDelete={deleteDef}
+          onReorder={(from, to) => {
+            const shown = defs.filter((d) => d.id !== 'goals')
+            const a = shown[from]
+            const b = shown[to]
+            if (!a || !b) return
+            setDefs((ds) => {
+              const fi = ds.findIndex((d) => d.id === a.id)
+              const ti = ds.findIndex((d) => d.id === b.id)
+              return fi < 0 || ti < 0 ? ds : moveItem(ds, fi, ti)
+            })
+          }}
+          onClose={() => setBlockSettingsOpen(false)}
         />
       )}
 
@@ -1788,6 +1834,133 @@ function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
     >
       <Plus size={14} strokeWidth={1.8} /> {label}
     </button>
+  )
+}
+
+// шторка настройки блоков дня: список блоков (drag/переименование/удаление) + добавление из шаблонов
+function BlockSettings({
+  defs,
+  templates,
+  onAdd,
+  onAddTemplate,
+  onRename,
+  onDelete,
+  onReorder,
+  onClose,
+}: {
+  defs: BlockDef[]
+  templates: BlockTemplate[]
+  onAdd: () => void
+  onAddTemplate: (t: BlockTemplate) => void
+  onRename: (id: string, title: string) => void
+  onDelete: (id: string) => void
+  onReorder: (from: number, to: number) => void
+  onClose: () => void
+}) {
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const drag = useDragList({ onReorder, onLongPress: () => {} })
+
+  const commitRename = (id: string, value: string) => {
+    if (value.trim()) onRename(id, value.trim())
+    setRenaming(null)
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70]">
+      <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
+      <div
+        className="absolute inset-x-0 bottom-0 top-14 rounded-t-2xl overflow-y-auto"
+        style={{ background: 'var(--bg, var(--surface))', border: '1px solid var(--line)', borderBottom: 'none' }}
+      >
+        <div className="px-4 pt-4 pb-24">
+          <div className="flex items-center justify-between mb-1">
+            <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 700, color: 'var(--light)' }}>
+              Блоки дня
+            </h2>
+            <button onClick={onClose} className="p-1" style={{ color: 'var(--muted)' }}>
+              <X size={20} strokeWidth={1.8} />
+            </button>
+          </div>
+          <p className="mb-4" style={{ fontSize: 12, color: 'var(--muted)' }}>
+            Перетаскивай удержанием. Новый блок — кнопкой ниже или из готового шаблона.
+          </p>
+
+          <div {...drag.containerProps} className="space-y-2">
+            {defs.map((d, idx) => (
+              <div
+                key={d.id}
+                {...drag.bindRow(idx)}
+                className="flex items-center gap-2 rounded-xl px-3 py-2.5"
+                style={{ background: 'var(--surface)', border: '1px solid var(--line)', ...drag.rowStyle(idx) }}
+              >
+                <ListTree size={15} strokeWidth={1.8} style={{ color: 'var(--accent)', flex: 'none' }} />
+                {renaming === d.id ? (
+                  <input
+                    defaultValue={d.title}
+                    autoFocus
+                    onBlur={(e) => commitRename(d.id, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === 'Escape') {
+                        if (e.key === 'Enter') commitRename(d.id, (e.target as HTMLInputElement).value)
+                        else setRenaming(null)
+                      }
+                    }}
+                    className="flex-1 min-w-0 rounded-lg px-2 py-1 outline-none"
+                    style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', color: 'var(--light)', fontSize: 14 }}
+                  />
+                ) : (
+                  <button onClick={() => setRenaming(d.id)} className="flex-1 min-w-0 text-left truncate" style={{ fontSize: 14, fontWeight: 600, color: 'var(--light)' }}>
+                    {d.title || 'Блок'}
+                  </button>
+                )}
+                <button onClick={() => onDelete(d.id)} className="p-1" style={{ color: 'var(--muted)' }} title="Удалить блок">
+                  <Trash2 size={15} strokeWidth={1.8} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={onAdd}
+            className="mt-3 w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl"
+            style={{ background: 'var(--accent)', color: 'var(--on-fill)', fontSize: 13, fontWeight: 600 }}
+          >
+            <Plus size={15} strokeWidth={2} /> Новый блок
+          </button>
+
+          <h3 className="mt-6 mb-2" style={{ fontSize: 14, fontWeight: 600, color: 'var(--light)' }}>
+            Из шаблона
+          </h3>
+          {templates.length === 0 && (
+            <p className="py-3 text-center" style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+              Нет шаблонов — создай в Записях → Блоки
+            </p>
+          )}
+          <div className="space-y-2">
+            {[...templates].sort((a, b) => b.updated - a.updated).map((t) => {
+              const count = t.items.length + t.lists.reduce((acc, l) => acc + l.items.length, 0)
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => onAddTemplate(t)}
+                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left"
+                  style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+                >
+                  <ListChecks size={15} strokeWidth={1.8} style={{ color: 'var(--ring-checklists)', flex: 'none' }} />
+                  <span className="flex-1 min-w-0 truncate" style={{ fontSize: 14, fontWeight: 600, color: 'var(--light)' }}>
+                    {t.title || 'Без названия'}
+                  </span>
+                  <span className="flex-none" style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    {count > 0 ? `${count} пунктов` : 'пусто'}
+                  </span>
+                  <Plus size={14} strokeWidth={2} style={{ color: 'var(--accent)', flex: 'none' }} />
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -17,7 +17,13 @@ export interface DayInstance {
   items: DayItem[]
 }
 
-export interface Folder { id: string; name: string; parentId?: string }
+export interface Folder {
+  id: string
+  name: string
+  parentId?: string
+  // к какому разделу относится корень ветки: папки записей или папки шаблонов блоков
+  scope?: 'records' | 'blocks'
+}
 export interface EmotionSubItem {
   name: string
   level: number // 0–12
@@ -136,8 +142,43 @@ export interface BlockTemplate {
   inDashboard: boolean
   items: BlockItem[]
   lists: BlockList[]
+  folderId?: string    // папка в разделе «Блоки»; нет/неизвестная — корень
   updated: number
 }
+
+// клонирование содержимого шаблона в день: свежие id, галочки сброшены
+export const cloneTemplateItems = (items: BlockItem[], withTime: boolean): BlockItem[] =>
+  items.map((it) => ({
+    id: uid(),
+    text: it.text,
+    done: false,
+    ...(withTime ? { time: it.time ?? '12:00' } : {}),
+  }))
+
+export const cloneTemplateList = (l: BlockList, withTime: boolean): BlockList => ({
+  id: uid(),
+  kind: l.kind,
+  title: l.title,
+  items: cloneTemplateItems(l.items, withTime),
+  lists: l.lists?.map((x) => cloneTemplateList(x, withTime)),
+})
+
+// стартовые подпапки разделов (стабильные id — слияние идемпотентно)
+export const SEED_RECORD_FOLDERS: Folder[] = [
+  { id: 'rec-work', name: 'Работа', scope: 'records' },
+  { id: 'rec-projects', name: 'Проекты', scope: 'records' },
+  { id: 'rec-life', name: 'Быт', scope: 'records' },
+  { id: 'rec-thoughts', name: 'Мысли', scope: 'records' },
+]
+
+export const SEED_BLOCK_FOLDERS: Folder[] = [
+  { id: 'blk-work', name: 'Работа', scope: 'blocks' },
+  { id: 'blk-weekly-care', name: 'Еженедельный уход', scope: 'blocks' },
+  { id: 'blk-life', name: 'Быт', scope: 'blocks' },
+  { id: 'blk-morning', name: 'Утренний блок', scope: 'blocks' },
+  { id: 'blk-evening', name: 'Вечерний блок', scope: 'blocks' },
+  { id: 'blk-tasks', name: 'Дела', scope: 'blocks' },
+]
 
 // ─── helpers ───
 
