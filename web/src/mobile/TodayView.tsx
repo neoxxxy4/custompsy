@@ -182,6 +182,7 @@ export default function TodayView() {
   const [templates] = useLS<BlockTemplate[]>('aod4-block-templates', [])
   const [ringsOpen, setRingsOpen] = useState(false)
   const [goalsOpen, setGoalsOpen] = useState(true)
+  const [dayAddOpen, setDayAddOpen] = useState(false)
   const [moveReq, setMoveReq] = useState<MoveSrc | null>(null)
   // режим «Доска»: какая плашка-блок сейчас на экране
   const [boardId, setBoardId] = useState<string | null>(null)
@@ -629,6 +630,26 @@ export default function TodayView() {
           onAdd={readOnly || !def.allow.items ? undefined : () => addItem(def)}
           // меню только для реальных def: константные «Цели» без def не настраиваются
           onMenu={readOnly || !defs.some((d) => d.id === def.id) ? undefined : () => setMenuBlockId(def.id)}
+          addContent={
+            readOnly || !(def.allow.items || def.allow.sub || def.allow.checklists || def.allow.lists)
+              ? undefined
+              : (
+                <>
+                  {def.allow.items && (
+                    <AddRow label="добавить пункт" onClick={() => addItem(def)} />
+                  )}
+                  {def.allow.sub && (
+                    <AddRow label="добавить подблок" onClick={() => addSubBlock(def.id, null)} />
+                  )}
+                  {def.allow.checklists && (
+                    <AddRow label="добавить чек-лист" onClick={() => setPickList({ def, kind: 'checklist' })} />
+                  )}
+                  {def.allow.lists && (
+                    <AddRow label="добавить список" onClick={() => setPickList({ def, kind: 'list' })} />
+                  )}
+                </>
+              )
+          }
         >
           {vis.length === 0 && bd.lists.length === 0 && <EmptyDash />}
           {vis.length > 0 && (
@@ -704,22 +725,6 @@ export default function TodayView() {
               onMergeItem={(listId, from, to) => mergeIntoSub(def.id, listId, from, to)}
               hideDone={hide}
             />
-          )}
-          {!readOnly && (def.allow.items || def.allow.sub || def.allow.checklists || def.allow.lists) && (
-            <AddBar>
-              {def.allow.items && (
-                <AddRow label="добавить пункт" onClick={() => addItem(def)} />
-              )}
-              {def.allow.sub && (
-                <AddRow label="добавить подблок" onClick={() => addSubBlock(def.id, null)} />
-              )}
-              {def.allow.checklists && (
-                <AddRow label="добавить чек-лист" onClick={() => setPickList({ def, kind: 'checklist' })} />
-              )}
-              {def.allow.lists && (
-                <AddRow label="добавить список" onClick={() => setPickList({ def, kind: 'list' })} />
-              )}
-            </AddBar>
           )}
         </BlockShell>
       </div>
@@ -834,10 +839,10 @@ export default function TodayView() {
               className="rounded-2xl px-3 py-2.5 mb-3"
               style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
             >
-              {/* одна компактная строка: круг дня + счёт + цели (особый дефолтный чек-лист)
-                  + переключение вида список/доска; в свёрнутом виде карточка занимает минимум */}
-              <div className="flex items-start gap-2.5">
-                <span className="relative flex-none pt-0.5">
+              {/* строка: круг дня + счёт + иконки строкой (вид, настройка блоков, добавление);
+                  цели — под кругом на всю ширину */}
+              <div className="flex items-center gap-2.5">
+                <span className="relative flex-none">
                   <ProgressRing pct={dayStat.total ? dayStat.done / dayStat.total : 0} color="var(--accent)" size={44} />
                   <span
                     className="absolute inset-0 grid place-items-center"
@@ -846,57 +851,85 @@ export default function TodayView() {
                     {Math.round((dayStat.total ? dayStat.done / dayStat.total : 0) * 100)}%
                   </span>
                 </span>
-                <span className="flex-none pt-4" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
+                <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
                   {dayStat.done}/{dayStat.total}
                 </span>
-                <div className="flex-1 min-w-0">
-                  <ChecklistRow
-                    inst={{ title: 'Цели', color: 'var(--ring-goals)', items: blockData('goals').items }}
-                    icon={Target}
-                    expanded={goalsOpen}
-                    onToggle={() => setGoalsOpen((v) => !v)}
-                    onToggleItem={(itemId) => {
-                      const it = blockData('goals').items.find((x) => x.id === itemId)
-                      if (it) patchItem('goals', itemId, { done: !it.done })
-                    }}
-                    onItemDblTap={(itemId) => {
-                      const it = blockData('goals').items.find((x) => x.id === itemId)
-                      if (!it) return
-                      patchItem('goals', itemId, it.status === 'work' && !it.done ? { status: 'plan' } : { done: false, status: 'work' })
-                    }}
-                    readOnly={readOnly}
-                    onItemLongPress={
-                      readOnly
-                        ? undefined
-                        : (itemId) => {
-                            const it = blockData('goals').items.find((x) => x.id === itemId)
-                            setSheet({ kind: 'item', blockId: 'goals', itemId, title: it?.text || 'Цель' })
-                          }
-                    }
-                    editItemId={editItem?.blockId === 'goals' ? editItem.itemId : null}
-                    onEditItem={(itemId, text) => patchItem('goals', itemId, { text })}
-                    onEditItemEnd={() => setEditItem(null)}
-                    onReorderItem={(from, to) =>
-                      patchBlockData('goals', (b) => ({ ...b, items: stampPos(moveItem(b.items, from, to)) }))
-                    }
-                  >
-                    {!readOnly && <AddRow label="добавить цель" onClick={() => addItem(goalsDef)} />}
-                  </ChecklistRow>
-                </div>
-                {/* вид прогресса: список (одна строка) / доска (колонки); шестерёнка — настройка блоков */}
-                <div className="flex-none flex flex-col gap-0.5 pt-1">
-                  <button onClick={() => setViewMode('list')} title="Список" className="p-1">
-                    <Rows2 size={15} strokeWidth={1.8} style={{ color: viewMode === 'list' ? 'var(--accent)' : 'var(--muted)' }} />
+                {/* иконки строкой после счётчика: список / доска / настройка блоков / добавление */}
+                <span className="flex-1" />
+                <button onClick={() => setViewMode('list')} title="Список" className="p-1">
+                  <Rows2 size={15} strokeWidth={1.8} style={{ color: viewMode === 'list' ? 'var(--accent)' : 'var(--muted)' }} />
+                </button>
+                <button onClick={() => setViewMode('board')} title="Доска" className="p-1">
+                  <Columns2 size={15} strokeWidth={1.8} style={{ color: viewMode === 'board' ? 'var(--accent)' : 'var(--muted)' }} />
+                </button>
+                {!readOnly && (
+                  <button onClick={() => setBlockSettingsOpen(true)} title="Настройка блоков" className="p-1">
+                    <Settings2 size={15} strokeWidth={1.8} style={{ color: 'var(--muted)' }} />
                   </button>
-                  <button onClick={() => setViewMode('board')} title="Доска" className="p-1">
-                    <Columns2 size={15} strokeWidth={1.8} style={{ color: viewMode === 'board' ? 'var(--accent)' : 'var(--muted)' }} />
+                )}
+                {!readOnly && (
+                  <button onClick={() => setDayAddOpen((v) => !v)} title="Добавить" className="p-1">
+                    <Plus size={16} strokeWidth={2} style={{ color: dayAddOpen ? 'var(--accent)' : 'var(--muted)' }} />
                   </button>
-                  {!readOnly && (
-                    <button onClick={() => setBlockSettingsOpen(true)} title="Настройка блоков" className="p-1">
-                      <Settings2 size={15} strokeWidth={1.8} style={{ color: 'var(--muted)' }} />
-                    </button>
-                  )}
+                )}
+              </div>
+              {/* панель добавления: раскрывается 4-й иконкой «+» */}
+              {!readOnly && (
+                <div
+                  className="grid transition-[grid-template-rows] duration-300"
+                  style={{ gridTemplateRows: dayAddOpen ? '1fr' : '0fr' }}
+                >
+                  <div className="overflow-hidden">
+                    <AddRow
+                      label="добавить блок"
+                      onClick={() => {
+                        addBlockDef()
+                        setDayAddOpen(false)
+                      }}
+                    />
+                    <AddRow
+                      label="добавить цель"
+                      onClick={() => {
+                        addItem(goalsDef)
+                        setGoalsOpen(true)
+                        setDayAddOpen(false)
+                      }}
+                    />
+                  </div>
                 </div>
+              )}
+              {/* цели (особый дефолтный чек-лист) — под кругом всех дел, на всю ширину */}
+              <div className="mt-2">
+                <ChecklistRow
+                  inst={{ title: 'Цели', color: 'var(--ring-goals)', items: blockData('goals').items }}
+                  icon={Target}
+                  expanded={goalsOpen}
+                  onToggle={() => setGoalsOpen((v) => !v)}
+                  onToggleItem={(itemId) => {
+                    const it = blockData('goals').items.find((x) => x.id === itemId)
+                    if (it) patchItem('goals', itemId, { done: !it.done })
+                  }}
+                  onItemDblTap={(itemId) => {
+                    const it = blockData('goals').items.find((x) => x.id === itemId)
+                    if (!it) return
+                    patchItem('goals', itemId, it.status === 'work' && !it.done ? { status: 'plan' } : { done: false, status: 'work' })
+                  }}
+                  readOnly={readOnly}
+                  onItemLongPress={
+                    readOnly
+                      ? undefined
+                      : (itemId) => {
+                          const it = blockData('goals').items.find((x) => x.id === itemId)
+                          setSheet({ kind: 'item', blockId: 'goals', itemId, title: it?.text || 'Цель' })
+                        }
+                  }
+                  editItemId={editItem?.blockId === 'goals' ? editItem.itemId : null}
+                  onEditItem={(itemId, text) => patchItem('goals', itemId, { text })}
+                  onEditItemEnd={() => setEditItem(null)}
+                  onReorderItem={(from, to) =>
+                    patchBlockData('goals', (b) => ({ ...b, items: stampPos(moveItem(b.items, from, to)) }))
+                  }
+                />
               </div>
               {/* остальные кольца свернуты: полосочка внизу разворачивает/сворачивает */}
               {extraRings.length > 0 && (
@@ -1807,6 +1840,7 @@ function BlockShell({
   onToggle,
   onAdd,
   onMenu,
+  addContent,
   children,
 }: {
   title: string
@@ -1818,8 +1852,10 @@ function BlockShell({
   onToggle: () => void
   onAdd?: () => void
   onMenu?: () => void
+  addContent?: ReactNode // панель добавления: «+» слева от счётчика раскрывает её под линией прогресса
   children: ReactNode
 }) {
+  const [addOpen, setAddOpen] = useState(false)
   return (
     <section
       className="rounded-2xl"
@@ -1844,6 +1880,20 @@ function BlockShell({
         >
           {title}
         </span>
+        {expanded && !readOnly && addContent && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setAddOpen((v) => !v)
+            }}
+            onTouchStart={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="p-0.5"
+            title="Добавить"
+          >
+            <Plus size={16} strokeWidth={2} style={{ color: addOpen ? 'var(--accent)' : 'var(--muted)' }} />
+          </button>
+        )}
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>{count}</span>
         {!readOnly && expanded && onMenu && (
           <button
@@ -1880,7 +1930,20 @@ function BlockShell({
         }}
       >
         <div style={{ overflow: 'hidden' }}>
-          <div className="px-3 pb-3">{children}</div>
+          <div className="px-3 pb-3">
+            {addContent && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateRows: addOpen ? '1fr' : '0fr',
+                  transition: 'grid-template-rows .3s cubic-bezier(0.65,0,0.35,1)',
+                }}
+              >
+                <div style={{ overflow: 'hidden' }}>{addContent}</div>
+              </div>
+            )}
+            {children}
+          </div>
         </div>
       </div>
     </section>
@@ -1896,32 +1959,6 @@ function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
     >
       <Plus size={14} strokeWidth={1.8} /> {label}
     </button>
-  )
-}
-
-// кнопки добавления скрыты за полосочкой внизу (как кольца в дашборде):
-// тап по полоске раскрывает/закрывает панель добавления
-function AddBar({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <>
-      <div
-        className="grid transition-[grid-template-rows] duration-300"
-        style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
-      >
-        <div className="overflow-hidden">{children}</div>
-      </div>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="mt-1 w-full grid place-items-center py-1"
-        title={open ? 'Скрыть добавление' : 'Добавить'}
-      >
-        <span
-          className="w-10 h-1 rounded-full transition-colors"
-          style={{ background: open ? 'var(--accent)' : 'var(--line-strong)' }}
-        />
-      </button>
-    </>
   )
 }
 
