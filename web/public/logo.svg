@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <!-- white base circle -->
-  <circle cx="256" cy="256" r="250" fill="#e9e7e2"/>
+  <circle cx="256" cy="256" r="256" fill="#e9e7e2"/>
   <!-- blue half with S-curve -->
-  <path d="M256,6 A250,250 0 0,0 256,506 A125,125 0 0,1 256,256 A125,125 0 0,0 256,6 Z" fill="#2474ff"/>
+  <path d="M256,0 A256,256 0 0,0 256,512 A128,128 0 0,1 256,256 A128,128 0 0,0 256,0 Z" fill="#2474ff"/>
   <!-- dots -->
   <circle cx="256" cy="70" r="36" fill="#e9e7e2"/>
   <circle cx="256" cy="442" r="36" fill="#181412"/>
