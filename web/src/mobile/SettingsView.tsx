@@ -208,8 +208,10 @@ export default function SettingsView({
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [isDirty])
 
+  // нижние вкладки: быстрый захват (150ms вместо 500) — взял и сразу перетащил
   const bottomTabDrag = useDragList({
     disabled: false,
+    ms: 150,
     onReorder: moveBottomTab,
     onLongPress: () => {},
   })
@@ -317,7 +319,7 @@ export default function SettingsView({
           <span style={{ fontSize: 11, color: 'var(--muted)' }}>{tabs.length}/5</span>
         </div>
         <p className="mb-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
-          Порядок и состав нижней панели — любые сервисы. Максимум 5.
+          Порядок и состав нижней панели — любые сервисы. Максимум 5. Тяни строку, чтобы переставить.
         </p>
         <div
           {...bottomTabDrag.containerProps}
