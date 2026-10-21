@@ -1,8 +1,22 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { API_BASE, LS_WRITE_EVENT, setSyncStatus } from './sync'
+import {
+  API_BASE,
+  LS_WRITE_EVENT,
+  cleanDirtyKeys,
+  collectDirtyState,
+  isDirtyKey,
+  markDirtyKey,
+  readLS,
+  setSyncStatus,
+} from './sync'
 
-const IS_OFFLINE_MODE =
+// URL ?mode=offline принудительно глушит сеть (тестовая сборка apk2)
+const IS_OFFLINE_URL =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'offline'
+
+// пользовательский переключатель из настроек; специально НЕ начинается с aod4-,
+// чтобы сам режим не синхронизировался между устройствами
+export const OFFLINE_MODE_KEY = 'provodnik-offline-mode'
 
 const SYNC_DEBOUNCE_MS = 1000
 const POLL_MS = 3000
@@ -12,9 +26,18 @@ interface SyncCtx {
   error: string | null
   connected: boolean
   offline: boolean
+  offlineForced: boolean
+  setOffline: (v: boolean) => void
 }
 
-const SyncContext = createContext<SyncCtx>({ lastSyncAt: null, error: null, connected: false, offline: IS_OFFLINE_MODE })
+const SyncContext = createContext<SyncCtx>({
+  lastSyncAt: null,
+  error: null,
+  connected: false,
+  offline: IS_OFFLINE_URL,
+  offlineForced: IS_OFFLINE_URL,
+  setOffline: () => {},
+})
 
 export const useSync = () => useContext(SyncContext)
 
@@ -24,15 +47,23 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
+  const [offline, setOfflineState] = useState<boolean>(() =>
+    IS_OFFLINE_URL ? true : readLS(OFFLINE_MODE_KEY, false),
+  )
   const isHydrating = useRef(true)
-  const pending = useRef<Set<string>>(new Set())
   const timer = useRef<number | null>(null)
+  const offlineRef = useRef(offline)
+  offlineRef.current = offline
 
+  // входящие данные никогда не затирают грязные (редактируемые) ключи
   const applyServerState = (state: Record<string, unknown>) => {
     try {
       Object.entries(state).forEach(([key, value]) => {
-        if (isSyncKey(key)) {
-          localStorage.setItem(key, JSON.stringify(value))
+        if (!isSyncKey(key)) return
+        if (isDirtyKey(key)) return
+        const next = JSON.stringify(value)
+        if (localStorage.getItem(key) !== next) {
+          localStorage.setItem(key, next)
         }
       })
       window.dispatchEvent(new Event('aod:sync-hydrated'))
@@ -42,11 +73,6 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
   }
 
   const loadState = async () => {
-    if (IS_OFFLINE_MODE) {
-      isHydrating.current = false
-      window.dispatchEvent(new Event('aod:sync-hydrated'))
-      return
-    }
     setSyncStatus('syncing')
     try {
       const r = await fetch(`${API_BASE}/sync`)
@@ -61,26 +87,14 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
       setConnected(false)
     } finally {
       setSyncStatus('idle')
-      isHydrating.current = false
-      window.dispatchEvent(new Event('aod:sync-hydrated'))
     }
   }
 
+  // отправка только грязных ключей; грязный флаг снимается лишь после
+  // подтверждения сервером и только если значение не менялось в полёте
   const flush = async () => {
-    if (IS_OFFLINE_MODE) return
-    const keys = Array.from(pending.current)
-    if (keys.length === 0) return
-    pending.current.clear()
-
-    const state: Record<string, unknown> = {}
-    for (const key of keys) {
-      try {
-        const raw = localStorage.getItem(key)
-        if (raw !== null) state[key] = JSON.parse(raw)
-      } catch {
-        /* ignore */
-      }
-    }
+    const { state, sentRaw } = collectDirtyState()
+    if (sentRaw.size === 0) return
 
     setSyncStatus('syncing')
     try {
@@ -90,30 +104,53 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
         body: JSON.stringify({ state }),
       })
       if (!r.ok) throw new Error(`sync save ${r.status}`)
+      cleanDirtyKeys(sentRaw)
       setLastSyncAt(new Date())
       setError(null)
       setConnected(true)
     } catch (e) {
       setError(String(e))
       setConnected(false)
-      keys.forEach((k) => pending.current.add(k))
     } finally {
       setSyncStatus('idle')
     }
   }
 
-  // 1. Загрузка начального состояния
-  useEffect(() => {
-    void loadState()
-  }, [])
+  // строгий порядок: сначала наши правки на сервер, потом свежее с сервера —
+  // никаких параллельных PUT/GET, которые затирали друг друга
+  const syncCycle = async () => {
+    await flush()
+    await loadState()
+  }
 
-  // 2. Отправка изменений
+  const finishHydration = () => {
+    isHydrating.current = false
+    window.dispatchEvent(new Event('aod:sync-hydrated'))
+  }
+
+  // запуск/остановка сетевого цикла в зависимости от режима
+  useEffect(() => {
+    if (offline) {
+      finishHydration()
+      return
+    }
+
+    void syncCycle().finally(finishHydration)
+    const interval = window.setInterval(() => {
+      void syncCycle()
+    }, POLL_MS)
+    return () => window.clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offline])
+
+  // локальные записи → грязный ключ → отложенная отправка (в онлайне)
   useEffect(() => {
     const onWrite = (e: Event) => {
       if (isHydrating.current) return
       const key = (e as CustomEvent<{ key: string }>).detail?.key
       if (!key || !isSyncKey(key)) return
-      pending.current.add(key)
+      markDirtyKey(key)
+      if (offlineRef.current) return
       if (timer.current) window.clearTimeout(timer.current)
       timer.current = window.setTimeout(() => { void flush() }, SYNC_DEBOUNCE_MS)
     }
@@ -123,20 +160,36 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
       window.removeEventListener(LS_WRITE_EVENT, onWrite)
       if (timer.current) window.clearTimeout(timer.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 3. Периодическая отправка и получение изменений
+  // вернулась сеть — сразу выгружаем накопившееся
   useEffect(() => {
-    if (IS_OFFLINE_MODE) return
-    const interval = window.setInterval(() => {
-      if (pending.current.size > 0) void flush()
-      void loadState()
-    }, POLL_MS)
-    return () => window.clearInterval(interval)
+    const onOnline = () => {
+      if (!offlineRef.current) void syncCycle()
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const setOffline = (v: boolean) => {
+    if (IS_OFFLINE_URL) return
+    try {
+      localStorage.setItem(OFFLINE_MODE_KEY, JSON.stringify(v))
+    } catch {
+      /* ignore */
+    }
+    setOfflineState(v)
+  }
+
+  const statusColor = offline ? '#8b5cf6' : connected ? '#22c55e' : error ? '#ef4444' : '#eab308'
+  const statusLabel = offline ? 'offline' : connected ? 'online' : error ? 'err' : 'off'
 
   return (
-    <SyncContext.Provider value={{ lastSyncAt, error, connected, offline: IS_OFFLINE_MODE }}>
+    <SyncContext.Provider
+      value={{ lastSyncAt, error, connected, offline, offlineForced: IS_OFFLINE_URL, setOffline }}
+    >
       {children}
       <div
         style={{
@@ -161,10 +214,10 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
             width: 8,
             height: 8,
             borderRadius: '50%',
-            background: IS_OFFLINE_MODE ? '#8b5cf6' : connected ? '#22c55e' : error ? '#ef4444' : '#eab308',
+            background: statusColor,
           }}
         />
-        <span>{IS_OFFLINE_MODE ? 'local' : connected ? 'online' : error ? 'err' : 'off'}</span>
+        <span>{statusLabel}</span>
       </div>
     </SyncContext.Provider>
   )

@@ -77,14 +77,85 @@ export const writeLS = (key: string, v: unknown) => {
   }
 }
 
+// ─── offline-first: «грязные» ключи ───
+// Ключ становится грязным при локальной правке и остаётся таким, пока
+// сервер не подтвердил сохранение именно этой версии. Грязный ключ
+// никогда не затирается входящей синхронизацией — отсюда нет откатов
+// текста на полуслове. Список переживает перезапуск приложения.
+// Не начинается с aod4-, чтобы не синхронизироваться и не стираться миграциями.
+
+const DIRTY_KEYS = 'provodnik-dirty-keys'
+
+const loadDirtyKeys = (): string[] => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DIRTY_KEYS) ?? '[]')
+    return Array.isArray(parsed) ? parsed.filter((k) => typeof k === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+// единый модульный набор — им пользуются и провайдер, и ручное «Сохранить»
+const dirtySet = new Set<string>(typeof window === 'undefined' ? [] : loadDirtyKeys())
+
+const persistDirtyKeys = () => {
+  try {
+    localStorage.setItem(DIRTY_KEYS, JSON.stringify([...dirtySet]))
+  } catch {
+    /* ignore */
+  }
+}
+
+export const getDirtySet = () => dirtySet
+
+export const markDirtyKey = (key: string) => {
+  dirtySet.add(key)
+  persistDirtyKeys()
+}
+
+export const isDirtyKey = (key: string) => dirtySet.has(key)
+
+// снимаем грязный флаг только если значение не менялось с момента отправки
+export const cleanDirtyKeys = (sentRaw: Map<string, string>) => {
+  sentRaw.forEach((raw, key) => {
+    if (localStorage.getItem(key) === raw) dirtySet.delete(key)
+  })
+  persistDirtyKeys()
+}
+
+// собираем грязные ключи в тело запроса; sentRaw — снимок для cleanDirtyKeys
+export const collectDirtyState = (): { state: Record<string, unknown>; sentRaw: Map<string, string> } => {
+  const state: Record<string, unknown> = {}
+  const sentRaw = new Map<string, string>()
+  dirtySet.forEach((key) => {
+    const raw = localStorage.getItem(key)
+    if (raw === null) {
+      dirtySet.delete(key) // ключа больше нет — грязнить нечего
+      return
+    }
+    try {
+      state[key] = JSON.parse(raw)
+      sentRaw.set(key, raw)
+    } catch {
+      /* битое значение — пропускаем */
+    }
+  })
+  persistDirtyKeys()
+  return { state, sentRaw }
+}
+
 export async function saveAllToServer(): Promise<void> {
   const state: Record<string, unknown> = {}
+  const sentRaw = new Map<string, string>()
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i)
     if (!key || !key.startsWith('aod4-')) continue
     try {
       const raw = localStorage.getItem(key)
-      if (raw !== null) state[key] = JSON.parse(raw)
+      if (raw !== null) {
+        state[key] = JSON.parse(raw)
+        sentRaw.set(key, raw)
+      }
     } catch {
       /* ignore */
     }
@@ -95,6 +166,8 @@ export async function saveAllToServer(): Promise<void> {
     body: JSON.stringify({ state }),
   })
   if (!r.ok) throw new Error(`sync save ${r.status}`)
+  // всё уехало на сервер — эти ключи больше не грязные
+  cleanDirtyKeys(sentRaw)
 }
 
 // тик, который растёт при любой записи через useSyncedLS + раз в intervalMs

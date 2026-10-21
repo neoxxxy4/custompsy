@@ -1,7 +1,8 @@
-import { Moon, MoreHorizontal, Plus, Save, Sun, X } from 'lucide-react'
+import { Moon, MoreHorizontal, Plus, Save, Sun, Wifi, WifiOff, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { ThemeId } from '@/lib/theme'
-import { saveAllToServer } from '../lib/sync'
+import { getDirtySet, saveAllToServer, useLSTick } from '../lib/sync'
+import { useSync } from '../lib/SyncProvider'
 import { useLS } from '../views/practice/store'
 import {
   BOTTOM_TAB_META,
@@ -72,6 +73,10 @@ export default function SettingsView({
   const [toolSheet, setToolSheet] = useState<MTab | null>(null)
   const [isDirty, setIsDirty] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const { offline, offlineForced, setOffline, connected, lastSyncAt } = useSync()
+  const lsTick = useLSTick(5000)
+  const pendingCount = getDirtySet().size
+  void lsTick
 
   const markDirty = () => setIsDirty(true)
 
@@ -258,6 +263,49 @@ export default function SettingsView({
             {isDark ? 'День' : 'Ночь'}
           </span>
         </button>
+      </div>
+
+      <div className="mt-4 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
+        <div className="flex items-center justify-between">
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--light)' }}>Синхронизация</span>
+          <div className="flex gap-2">
+            {(['online', 'offline'] as const).map((mode) => {
+              const active = offline === (mode === 'offline')
+              const Icon = mode === 'offline' ? WifiOff : Wifi
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setOffline(mode === 'offline')}
+                  disabled={offlineForced}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+                  style={{
+                    background: active ? 'var(--accent)' : 'var(--surface-2)',
+                    color: active ? 'var(--on-fill)' : 'var(--muted)',
+                    border: '1px solid var(--line)',
+                    fontSize: 13,
+                    opacity: offlineForced ? 0.5 : 1,
+                  }}
+                >
+                  <Icon size={14} strokeWidth={1.8} />
+                  {mode === 'offline' ? 'Офлайн' : 'Онлайн'}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        <p className="mt-2" style={{ fontSize: 12, color: 'var(--muted)' }}>
+          {offlineForced
+            ? 'Тестовая сборка — сеть отключена, всё хранится локально'
+            : offline
+              ? pendingCount > 0
+                ? `Офлайн. Изменений ждут отправки: ${pendingCount} — уедут при включении онлайна`
+                : 'Офлайн. Всё работает локально, сеть не используется'
+              : connected
+                ? pendingCount > 0
+                  ? `Онлайн. Отправляется изменений: ${pendingCount}`
+                  : `Онлайн${lastSyncAt ? ` · синхронизировано в ${lastSyncAt.toLocaleTimeString('ru-RU')}` : ''}`
+                : 'Нет связи с сервером — изменения копятся локально'}
+        </p>
       </div>
 
       <section className="mt-6">
