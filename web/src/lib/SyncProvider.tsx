@@ -183,42 +183,11 @@ export default function SyncProvider({ children }: { children: React.ReactNode }
     setOfflineState(v)
   }
 
-  const statusColor = offline ? '#8b5cf6' : connected ? '#22c55e' : error ? '#ef4444' : '#eab308'
-  const statusLabel = offline ? 'offline' : connected ? 'online' : error ? 'err' : 'off'
-
   return (
     <SyncContext.Provider
       value={{ lastSyncAt, error, connected, offline, offlineForced: IS_OFFLINE_URL, setOffline }}
     >
       {children}
-      <div
-        style={{
-          position: 'fixed',
-          top: 8,
-          right: 8,
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '4px 8px',
-          borderRadius: 12,
-          background: 'rgba(0,0,0,0.7)',
-          color: '#fff',
-          fontSize: 11,
-          fontFamily: 'monospace',
-          pointerEvents: 'none',
-        }}
-      >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: statusColor,
-          }}
-        />
-        <span>{statusLabel}</span>
-      </div>
     </SyncContext.Provider>
   )
 }
