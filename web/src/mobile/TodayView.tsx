@@ -151,7 +151,7 @@ const WD_SHORT = ['ВС', 'ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ']
 
 export default function TodayView() {
   const [offset, setOffset] = useState(0)
-  const [win, setWin] = useState<Win>('day')
+  const [win, setWin] = useState<Win>('progress')
   const viewDate = useMemo(() => {
     const d = new Date()
     d.setDate(d.getDate() + offset)
@@ -1318,7 +1318,7 @@ function BlockLists({
         const expanded = openLists.includes(lst.id)
         const editTitle = editListTitle?.blockId === blockId && editListTitle.listId === lst.id
         const editItemId = editListItem?.blockId === blockId && editListItem.listId === lst.id ? editListItem.itemId : null
-        // вложенные подблоки + кнопка «добавить подблок» (внутри чек-листов и подблоков)
+        // вложенные подблоки внутри чек-листов и подблоков (нумерованные списки — без вложений)
         const nested =
           lst.kind === 'list' ? null : (
             <>
@@ -1346,19 +1346,29 @@ function BlockLists({
                   hideDone={hideDone}
                 />
               )}
-              {!readOnly && (
-                <AddBar>
-                  <button
-                    onClick={() => onAddSubList(lst.id)}
-                    className="mb-1 flex items-center gap-1.5 rounded-lg px-2 py-1"
-                    style={{ color: 'var(--muted)', fontSize: 12 }}
-                  >
-                    <Plus size={12} strokeWidth={1.8} /> добавить подблок
-                  </button>
-                </AddBar>
-              )}
             </>
           )
+        // панель добавления: раскрывается «+» в шапке списка, под линией прогресса
+        const addContent = readOnly ? undefined : (
+          <div className="pb-1 pt-0.5">
+            <button
+              onClick={() => onAddListItem(lst.id)}
+              className="mb-1 flex items-center gap-1.5 rounded-lg px-2 py-1"
+              style={{ color: 'var(--muted)', fontSize: 12 }}
+            >
+              <Plus size={12} strokeWidth={1.8} /> добавить пункт
+            </button>
+            {lst.kind !== 'list' && (
+              <button
+                onClick={() => onAddSubList(lst.id)}
+                className="mb-1 flex items-center gap-1.5 rounded-lg px-2 py-1"
+                style={{ color: 'var(--muted)', fontSize: 12 }}
+              >
+                <Plus size={12} strokeWidth={1.8} /> добавить подблок
+              </button>
+            )}
+          </div>
+        )
         const h = itemHandlers(lst)
         // видимая копия списка: выполненные скрыты из вида, но хранятся в данных;
         // полоска и счётчик остаются полными n/m (stat из исходного списка)
@@ -1387,6 +1397,7 @@ function BlockLists({
                 onEditTitle={h.onEditTitle}
                 onEditTitleEnd={h.onEditTitleEnd}
                 stat={stat}
+                addContent={addContent}
               >
                 {nested}
               </ChecklistRow>
@@ -1408,6 +1419,7 @@ function BlockLists({
                 onEditTitle={h.onEditTitle}
                 onEditTitleEnd={h.onEditTitleEnd}
                 stat={stat}
+                addContent={addContent}
               >
                 {nested}
               </SubBlockRow>
@@ -1439,18 +1451,8 @@ function BlockLists({
                 onReorderItem={(from, to) =>
                   onPatchList(lst.id, (l) => ({ ...l, items: moveItem(l.items, from, to) }))
                 }
+                addContent={addContent}
               />
-            )}
-            {!readOnly && expanded && (
-              <AddBar>
-                <button
-                  onClick={() => onAddListItem(lst.id)}
-                  className="mb-1 ml-11 flex items-center gap-1.5 rounded-lg px-2 py-1"
-                  style={{ color: 'var(--muted)', fontSize: 12 }}
-                >
-                  <Plus size={12} strokeWidth={1.8} /> добавить пункт
-                </button>
-              </AddBar>
             )}
           </div>
         )
@@ -1479,6 +1481,7 @@ function SubBlockRow({
   onEditTitleEnd,
   children,
   stat,
+  addContent,
 }: {
   list: BlockList
   expanded: boolean
@@ -1497,7 +1500,9 @@ function SubBlockRow({
   onEditTitleEnd?: () => void
   children?: ReactNode
   stat?: { done: number; total: number } // внешний счёт: при «Скрыть выполненные» показываем полные n/m
+  addContent?: ReactNode // панель добавления: «+» слева от счётчика раскрывает её под заголовком
 }) {
+  const [addOpen, setAddOpen] = useState(false)
   const done = stat?.done ?? list.items.filter((i) => i.done).length
   const total = stat?.total ?? list.items.length
 
@@ -1557,6 +1562,18 @@ function SubBlockRow({
             </span>
           )}
         </span>
+        {expanded && !readOnly && addContent && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setAddOpen((v) => !v)
+            }}
+            className="flex-none p-0.5"
+            title="Добавить"
+          >
+            <Plus size={14} strokeWidth={2} style={{ color: addOpen ? 'var(--accent)' : 'var(--muted)' }} />
+          </button>
+        )}
         <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
           {done}/{total}
         </span>
@@ -1571,6 +1588,17 @@ function SubBlockRow({
       >
         <div style={{ overflow: 'hidden' }}>
           <div className="pl-6 pr-1 pb-1" {...drag.containerProps}>
+            {addContent && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateRows: addOpen ? '1fr' : '0fr',
+                  transition: 'grid-template-rows .3s cubic-bezier(0.65,0,0.35,1)',
+                }}
+              >
+                <div style={{ overflow: 'hidden' }}>{addContent}</div>
+              </div>
+            )}
             {list.items.map((it, idx) => {
               const inWork = it.status === 'work' && !it.done
               return (
@@ -1640,6 +1668,7 @@ function NumberedList({
   onEditItemEnd,
   onItemLongPress,
   onReorderItem,
+  addContent,
 }: {
   list: BlockList
   expanded: boolean
@@ -1653,7 +1682,9 @@ function NumberedList({
   onEditItemEnd?: () => void
   onItemLongPress?: (itemId: string) => void
   onReorderItem?: (from: number, to: number) => void
+  addContent?: ReactNode // панель добавления: «+» слева от счётчика раскрывает её под заголовком
 }) {
+  const [addOpen, setAddOpen] = useState(false)
   const drag = useDragList({
     disabled: readOnly || !onReorderItem,
     onReorder: (from, to) => onReorderItem?.(from, to),
@@ -1688,6 +1719,18 @@ function NumberedList({
             </span>
           )}
         </span>
+        {expanded && !readOnly && addContent && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setAddOpen((v) => !v)
+            }}
+            className="flex-none p-0.5"
+            title="Добавить"
+          >
+            <Plus size={15} strokeWidth={2} style={{ color: addOpen ? 'var(--accent)' : 'var(--muted)' }} />
+          </button>
+        )}
         <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
           {list.items.length} п.
         </span>
@@ -1708,6 +1751,17 @@ function NumberedList({
       >
         <div style={{ overflow: 'hidden' }}>
           <div className="pl-11 pr-1 pb-1" {...drag.containerProps}>
+            {addContent && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateRows: addOpen ? '1fr' : '0fr',
+                  transition: 'grid-template-rows .3s cubic-bezier(0.65,0,0.35,1)',
+                }}
+              >
+                <div style={{ overflow: 'hidden' }}>{addContent}</div>
+              </div>
+            )}
             {list.items.map((it, idx) => (
               <div
                 key={it.id}

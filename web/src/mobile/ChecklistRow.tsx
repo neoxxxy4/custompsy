@@ -1,5 +1,5 @@
-import { useRef, type CSSProperties, type ReactNode } from 'react'
-import { ChevronDown, ListChecks, type LucideIcon } from 'lucide-react'
+import { useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { ChevronDown, ListChecks, Plus, type LucideIcon } from 'lucide-react'
 import { useDragList } from './useDragList'
 import { MCheck } from './ui'
 
@@ -44,6 +44,7 @@ export default function ChecklistRow({
   children,
   icon,
   stat,
+  addContent,
 }: {
   inst: ChecklistInst
   expanded: boolean
@@ -63,7 +64,9 @@ export default function ChecklistRow({
   children?: ReactNode
   icon?: LucideIcon // другая иконка плитки (например, Target у целей)
   stat?: { done: number; total: number } // внешний счёт: при «Скрыть выполненные» показываем полные n/m
+  addContent?: ReactNode // панель добавления: «+» слева от счётчика раскрывает её под линией прогресса
 }) {
+  const [addOpen, setAddOpen] = useState(false)
   const done = stat?.done ?? inst.items.filter((i) => i.done).length
   const total = stat?.total ?? inst.items.length
   const pct = total ? done / total : 0
@@ -120,6 +123,18 @@ export default function ChecklistRow({
             />
           </span>
         </span>
+        {expanded && !readOnly && addContent && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setAddOpen((v) => !v)
+            }}
+            className="flex-none p-0.5"
+            title="Добавить"
+          >
+            <Plus size={15} strokeWidth={2} style={{ color: addOpen ? 'var(--accent)' : 'var(--muted)' }} />
+          </button>
+        )}
         <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
           {done}/{total}
         </span>
@@ -140,6 +155,17 @@ export default function ChecklistRow({
       >
         <div style={{ overflow: 'hidden' }}>
           <div className="pl-11 pr-1 pb-1" {...drag.containerProps}>
+            {addContent && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateRows: addOpen ? '1fr' : '0fr',
+                  transition: 'grid-template-rows .3s cubic-bezier(0.65,0,0.35,1)',
+                }}
+              >
+                <div style={{ overflow: 'hidden' }}>{addContent}</div>
+              </div>
+            )}
             {inst.items.map((it, idx) => {
               const inWork = it.status === 'work' && !it.done
               return (
