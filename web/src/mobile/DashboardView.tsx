@@ -13,6 +13,7 @@ import { useLS } from '../views/practice/store'
 import { WD } from '../lib/dayStats'
 import { SOCIAL_LAYERS } from './socialTypes'
 import ProgressRing from './ProgressRing'
+import PathView from './PathView'
 import { Card } from './ui'
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
@@ -151,16 +152,43 @@ export default function DashboardView() {
 
   const maxSpark = Math.max(...sparkline.map((d) => d.pct), 0.1)
 
+  const [dashTab, setDashTab] = useState<'overview' | 'path'>('overview')
+
   return (
-    <div className="px-4 pt-5 pb-28 min-h-screen space-y-4">
-      <header className="mb-1">
+    <div className="px-4 pt-5 pb-28 min-h-screen">
+      <header className="mb-3">
         <h1 style={{ fontFamily: 'var(--font-body)', fontSize: 28, fontWeight: 700, color: 'var(--light)' }}>
           Дашборд
         </h1>
         <p style={{ fontSize: 13, color: 'var(--muted)' }}>
           {date} · {wdName}
         </p>
+        <div
+          className="mt-3 flex gap-1 rounded-xl p-1"
+          style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+        >
+          {([['overview', 'Обзор'], ['path', 'Путь']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setDashTab(id)}
+              className="flex-1 rounded-lg py-1.5"
+              style={{
+                background: dashTab === id ? 'var(--accent)' : 'transparent',
+                color: dashTab === id ? 'var(--on-fill)' : 'var(--muted)',
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </header>
+
+      {dashTab === 'path' ? (
+        <PathView embedded />
+      ) : (
+      <div className="space-y-4">
 
       {/* Герой */}
       <Card title="" right={null}>
@@ -381,6 +409,8 @@ export default function DashboardView() {
           )}
         </div>
       </Card>
+      </div>
+      )}
     </div>
   )
 }
