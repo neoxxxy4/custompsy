@@ -1,11 +1,14 @@
 package com.provodnik.app
 
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -68,8 +71,42 @@ class MainActivity : Activity() {
         }
 
         setContentView(webView)
+        webView.addJavascriptInterface(IconBridge(this), "ProvodnikNative")
         val url = "$startUrl&__v=${System.currentTimeMillis()}"
         webView.loadUrl(url)
+    }
+
+    class IconBridge(private val activity: Activity) {
+        private val variants = mapOf(
+            "default" to "com.provodnik.app.MainActivity",
+            "moon" to "com.provodnik.app.iconMoon",
+            "moon-blue" to "com.provodnik.app.iconMoonBlue",
+            "moon-cyan" to "com.provodnik.app.iconMoonCyan",
+            "moon-pink" to "com.provodnik.app.iconMoonPink",
+        )
+
+        @JavascriptInterface
+        fun setIcon(id: String) {
+            val target = variants[id] ?: return
+            val pm = activity.packageManager
+            val pkg = activity.packageName
+            activity.runOnUiThread {
+                // сначала включаем нужный алиас, затем выключаем остальные
+                pm.setComponentEnabledSetting(
+                    ComponentName(pkg, target),
+                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    PackageManager.DONT_KILL_APP
+                )
+                variants.values.filter { it != target }.forEach { cls ->
+                    pm.setComponentEnabledSetting(
+                        ComponentName(pkg, cls),
+                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        PackageManager.DONT_KILL_APP
+                    )
+                }
+                Log.d("ProvodnikIcon", "icon switched to $id")
+            }
+        }
     }
 
     @Deprecated("Deprecated in Java")

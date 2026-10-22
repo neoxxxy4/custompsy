@@ -38,7 +38,19 @@
   </head>
   <body>
     <div id="root"></div>
-    <div id="boot-fallback"><img src="/logo-mark.png" alt="Проводник" /><div>Проводник</div></div>
+    <div id="boot-fallback"><img id="boot-logo" src="/logo-mark.png" alt="Проводник" /><div>Проводник</div></div>
+    <script>
+      // иконка загрузки по выбранной в настройках
+      (function () {
+        try {
+          var id = JSON.parse(localStorage.getItem('aod4-app-icon')) || 'default';
+          if (id !== 'default') {
+            var img = document.getElementById('boot-logo');
+            if (img) img.src = '/icon-' + id + '-512.png';
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

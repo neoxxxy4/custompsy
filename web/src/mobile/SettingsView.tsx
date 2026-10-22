@@ -1,5 +1,6 @@
 import { Moon, MoreHorizontal, Plus, Save, Sun, Wifi, WifiOff, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { APP_ICONS, applyAppIcon, APP_ICON_KEY, type AppIconId } from '@/lib/appIcon'
 import type { ThemeId } from '@/lib/theme'
 import { getDirtySet, saveAllToServer, useLSTick } from '../lib/sync'
 import { useSync } from '../lib/SyncProvider'
@@ -70,6 +71,7 @@ export default function SettingsView({
   const [menuFolder, setMenuFolder] = useState<string | null>(null)
   const [editingFolder, setEditingFolder] = useState<string | null>(null)
   const [analytics, setAnalytics] = useLS<SessionAnalyticsTab[]>(SESSION_ANALYTICS_KEY, DEFAULT_SESSION_ANALYTICS)
+  const [appIcon, setAppIcon] = useLS<AppIconId>(APP_ICON_KEY, 'default')
   const [toolConfigs, setToolConfigs] = useLS<Record<MTab, ToolConfig>>(TOOL_CONFIG_KEY, DEFAULT_TOOL_CONFIGS)
   const [toolSheet, setToolSheet] = useState<MTab | null>(null)
   const [isDirty, setIsDirty] = useState(false)
@@ -269,6 +271,41 @@ export default function SettingsView({
             {isDark ? 'День' : 'Ночь'}
           </span>
         </button>
+      </div>
+
+      <div className="mt-4 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--light)' }}>Иконка приложения</span>
+        <div className="mt-3 flex flex-wrap gap-3">
+          {APP_ICONS.map((ic) => {
+            const active = appIcon === ic.id
+            return (
+              <button
+                key={ic.id}
+                onClick={() => {
+                  setAppIcon(ic.id)
+                  applyAppIcon(ic.id)
+                }}
+                className="flex flex-col items-center gap-1.5"
+                style={{ opacity: active ? 1 : 0.55 }}
+              >
+                <img
+                  src={ic.preview}
+                  alt={ic.label}
+                  width={48}
+                  height={48}
+                  style={{
+                    borderRadius: '50%',
+                    border: active ? '2px solid var(--accent)' : '2px solid var(--line)',
+                  }}
+                />
+                <span style={{ fontSize: 10, color: active ? 'var(--light)' : 'var(--muted)' }}>{ic.label}</span>
+              </button>
+            )
+          })}
+        </div>
+        <p className="mt-2" style={{ fontSize: 12, color: 'var(--muted)' }}>
+          В приложении иконка на рабочем столе сменится после выхода из него
+        </p>
       </div>
 
       <div className="mt-4 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
