@@ -1,9 +1,16 @@
 package com.provodnik.app
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.webkit.ConsoleMessage
@@ -15,6 +22,9 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
 
 class MainActivity : Activity() {
 
@@ -74,6 +84,68 @@ class MainActivity : Activity() {
         webView.addJavascriptInterface(IconBridge(this), "ProvodnikNative")
         val url = "$startUrl&__v=${System.currentTimeMillis()}"
         webView.loadUrl(url)
+        checkUpdate()
+    }
+
+    // автообновление: сверяем versionCode с сервером, предлагаем скачать и поставить
+    private fun checkUpdate() {
+        if (isOfflineMode) return // тестовая сборка не обновляется
+        thread {
+            try {
+                val conn = URL("https://neoxxxy-4.ru/app/version.json").openConnection() as HttpURLConnection
+                conn.connectTimeout = 5000
+                conn.readTimeout = 5000
+                val body = conn.inputStream.bufferedReader().readText()
+                conn.disconnect()
+                val code = Regex("\"versionCode\"\\s*:\\s*(\\d+)").find(body)?.groupValues?.get(1)?.toIntOrNull() ?: return@thread
+                val apkUrl = Regex("\"url\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.get(1)
+                    ?: "https://neoxxxy-4.ru/app/latest.apk"
+                if (code > BuildConfig.VERSION_CODE) {
+                    runOnUiThread { promptUpdate(apkUrl) }
+                }
+            } catch (e: Exception) {
+                Log.d("ProvodnikUpdate", "check failed: $e")
+            }
+        }
+    }
+
+    private fun promptUpdate(apkUrl: String) {
+        if (isFinishing) return
+        AlertDialog.Builder(this)
+            .setTitle("Доступно обновление")
+            .setMessage("Загрузить и установить новую версию Проводника?")
+            .setPositiveButton("Обновить") { _, _ -> downloadAndInstall(apkUrl) }
+            .setNegativeButton("Позже", null)
+            .show()
+    }
+
+    private fun downloadAndInstall(apkUrl: String) {
+        val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val req = DownloadManager.Request(Uri.parse(apkUrl))
+            .setTitle("Проводник — обновление")
+            .setMimeType("application/vnd.android.package-archive")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalFilesDir(this, null, "update.apk")
+        val id = dm.enqueue(req)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) != id) return
+                try { unregisterReceiver(this) } catch (_: Exception) {}
+                val uri = dm.getUriForDownloadedFile(id) ?: return
+                val install = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(install)
+            }
+        }
+        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(receiver, filter)
+        }
     }
 
     class IconBridge(private val activity: Activity) {

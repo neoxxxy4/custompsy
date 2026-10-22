@@ -42,6 +42,8 @@ async fn main() {
     let app = Router::new()
         .route("/api/ws", axum::routing::get(ws::ws_handler))
         .nest("/api", api::router())
+        // дистрибуция APK: /app/version.json + /app/latest.apk
+        .nest_service("/app", ServeDir::new("apk-live"))
         .with_state(state)
         .fallback_service(
             ServeDir::new("web/dist").fallback(ServeFile::new("web/dist/index.html")),
