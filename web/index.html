@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Архитектор — система осознанного доверия</title>
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/webp" sizes="192x192" href="/icon-moon-192.webp" />
+    <link rel="apple-touch-icon" href="/icon-moon-180.webp" />
     <script>
       // тема применяется до первого рендера, чтобы не мигала
       (function () {
@@ -38,16 +38,14 @@
   </head>
   <body>
     <div id="root"></div>
-    <div id="boot-fallback"><img id="boot-logo" src="/logo-mark.png" alt="Проводник" /><div>Проводник</div></div>
+    <div id="boot-fallback"><img id="boot-logo" src="/icon-moon-512.webp" alt="Проводник" /><div>Проводник</div></div>
     <script>
       // иконка загрузки по выбранной в настройках
       (function () {
         try {
-          var id = JSON.parse(localStorage.getItem('aod4-app-icon')) || 'default';
-          if (id !== 'default') {
-            var img = document.getElementById('boot-logo');
-            if (img) img.src = '/icon-' + id + '-512.png';
-          }
+          var id = JSON.parse(localStorage.getItem('aod4-app-icon')) || 'moon';
+          var img = document.getElementById('boot-logo');
+          if (img) img.src = '/icon-' + id + '-512.webp';
         } catch (e) {}
       })();
     </script>

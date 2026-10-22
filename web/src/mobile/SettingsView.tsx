@@ -71,7 +71,7 @@ export default function SettingsView({
   const [menuFolder, setMenuFolder] = useState<string | null>(null)
   const [editingFolder, setEditingFolder] = useState<string | null>(null)
   const [analytics, setAnalytics] = useLS<SessionAnalyticsTab[]>(SESSION_ANALYTICS_KEY, DEFAULT_SESSION_ANALYTICS)
-  const [appIcon, setAppIcon] = useLS<AppIconId>(APP_ICON_KEY, 'default')
+  const [appIcon, setAppIcon] = useLS<AppIconId>(APP_ICON_KEY, 'moon')
   const [toolConfigs, setToolConfigs] = useLS<Record<MTab, ToolConfig>>(TOOL_CONFIG_KEY, DEFAULT_TOOL_CONFIGS)
   const [toolSheet, setToolSheet] = useState<MTab | null>(null)
   const [isDirty, setIsDirty] = useState(false)

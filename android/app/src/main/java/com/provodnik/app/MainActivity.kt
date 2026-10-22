@@ -78,8 +78,7 @@ class MainActivity : Activity() {
 
     class IconBridge(private val activity: Activity) {
         private val variants = mapOf(
-            "default" to "com.provodnik.app.MainActivity",
-            "moon" to "com.provodnik.app.iconMoon",
+            "moon" to "com.provodnik.app.MainActivity",
             "moon-blue" to "com.provodnik.app.iconMoonBlue",
             "moon-cyan" to "com.provodnik.app.iconMoonCyan",
             "moon-pink" to "com.provodnik.app.iconMoonPink",
