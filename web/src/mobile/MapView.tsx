@@ -176,12 +176,13 @@ export default function MapView() {
   }
 
   // пишет один подблок; запись удаляется, когда все подблоки пусты
-  const saveNote = (param: string, date: string, part: keyof ParamNoteParts, text: string) => {
+  const saveNote = (param: string, date: string, part: keyof ParamNoteParts, value: string | string[]) => {
     setStored((s) => {
       const pn = { ...(s.paramNotes ?? {}) }
       const byDate = { ...(pn[param] ?? {}) }
       const parts = { ...normalizeNote(byDate[date]) }
-      if (text.trim()) parts[part] = text
+      const hasValue = Array.isArray(value) ? value.some((v) => v.trim()) : value.trim()
+      if (hasValue) parts[part] = value as never
       else delete parts[part]
       if (noteHasText(parts)) byDate[date] = parts
       else delete byDate[date]
@@ -191,19 +192,20 @@ export default function MapView() {
     })
   }
 
-  const saveSheetNote = (param: string, part: keyof ParamNoteParts, text: string) => {
+  const saveSheetNote = (param: string, part: keyof ParamNoteParts, value: string | string[]) => {
     if (isAdding) {
       setDraftNotes((d) => {
         const next = { ...d }
         const parts = { ...normalizeNote(next[param]) }
-        if (text.trim()) parts[part] = text
+        const hasValue = Array.isArray(value) ? value.some((v) => v.trim()) : value.trim()
+        if (hasValue) parts[part] = value as never
         else delete parts[part]
         if (noteHasText(parts)) next[param] = parts
         else delete next[param]
         return next
       })
     } else {
-      saveNote(param, noteSheetDate, part, text)
+      saveNote(param, noteSheetDate, part, value)
     }
   }
 
