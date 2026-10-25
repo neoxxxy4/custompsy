@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, Plus, X } from 'lucide-react'
+import { ChevronDown, Plus, Trash2, X } from 'lucide-react'
 import { formatDateRu } from './mapLogic'
 
 // структура одной большой заметки к пункту:
 // вкладка «Структура»: 1) общее  2) сворачиваемые люди/эмоции/мысли/поведение  3) действия
-// вкладка «Вопросы»: свободное поле → цепочка «Почему?» (минимум 5, можно добавлять) → свободное поле
+// вкладка «Вопросы»: мысли → сворачиваемая цепочка «Почему?» (минимум 1, добавляются/удаляются) → вывод
+// freeTop хранит «Мысли», freeBottom — «Вывод» вкладки вопросов
 export interface ParamNoteParts {
   general?: string
   people?: string
@@ -83,6 +84,12 @@ export default function ParamNoteSheet({
   const [openParts, setOpenParts] = useState<Set<string>>(() =>
     new Set(COLLAPSIBLE.filter((s) => (note[s.key] ?? '').trim()).map((s) => s.key)),
   )
+  // раскрытые «почему?»: по умолчанию с текстом; пустая цепочка — первый блок открыт
+  const [openWhys, setOpenWhys] = useState<Set<number>>(() => {
+    const w = note.whys ?? []
+    const filled = w.map((t, i) => (t.trim() ? i : -1)).filter((i) => i >= 0)
+    return new Set(filled.length ? filled : [0])
+  })
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setMounted(true))
@@ -92,6 +99,9 @@ export default function ParamNoteSheet({
   // смена даты/пункта: переоткрыть блоки с текстом
   useEffect(() => {
     setOpenParts(new Set(COLLAPSIBLE.filter((s) => (note[s.key] ?? '').trim()).map((s) => s.key)))
+    const w = note.whys ?? []
+    const filled = w.map((t, i) => (t.trim() ? i : -1)).filter((i) => i >= 0)
+    setOpenWhys(new Set(filled.length ? filled : [0]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramName, date])
 
@@ -108,15 +118,34 @@ export default function ParamNoteSheet({
       return next
     })
 
-  // цепочка «почему?»: минимум 5 блоков, можно добавлять
+  const toggleWhy = (i: number) =>
+    setOpenWhys((s) => {
+      const next = new Set(s)
+      if (next.has(i)) next.delete(i)
+      else next.add(i)
+      return next
+    })
+
+  // цепочка «почему?»: минимум 1 блок, можно добавлять и удалять
   const whys = note.whys ?? []
-  const whyCount = Math.max(5, whys.length)
+  const whyCount = Math.max(1, whys.length)
   const setWhy = (i: number, text: string) => {
     const next = Array.from({ length: whyCount }, (_, j) => whys[j] ?? '')
     next[i] = text
     onSave('whys', next)
   }
-  const addWhy = () => onSave('whys', [...Array.from({ length: whyCount }, (_, j) => whys[j] ?? ''), ''])
+  const addWhy = () => {
+    onSave('whys', [...Array.from({ length: whyCount }, (_, j) => whys[j] ?? ''), ''])
+    setOpenWhys((s) => new Set(s).add(whyCount))
+  }
+  const removeWhy = (i: number) => {
+    const next = whys.filter((_, j) => j !== i)
+    onSave('whys', next)
+    setOpenWhys(() => {
+      const filled = next.map((t, j) => (t.trim() ? j : -1)).filter((j) => j >= 0)
+      return new Set(filled.length ? filled : [0])
+    })
+  }
 
   const open = mounted && !exiting
 
@@ -208,35 +237,65 @@ export default function ParamNoteSheet({
         <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
           {noteTab === 'questions' ? (
             <>
-              {/* свободное поле в начале */}
+              {/* начальный блок — мысли */}
+              <p className="pb-1" style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
+                Мысли
+              </p>
               <textarea
                 value={note.freeTop ?? ''}
                 onChange={(e) => onSave('freeTop', e.target.value)}
-                placeholder="Свободная запись…"
+                placeholder="Что крутится в голове по этому пункту…"
                 rows={2}
-                aria-label="Свободная запись в начале"
+                aria-label="Мысли"
                 className="w-full rounded-xl px-3 py-2 outline-none resize-none"
                 style={areaStyle}
               />
 
-              {/* цепочка «почему?» */}
-              <div className="mt-2.5 space-y-2">
-                {Array.from({ length: whyCount }, (_, i) => (
-                  <div key={i}>
-                    <p className="pb-1" style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
-                      Почему? {i + 1}
-                    </p>
-                    <textarea
-                      value={whys[i] ?? ''}
-                      onChange={(e) => setWhy(i, e.target.value)}
-                      placeholder="Потому что…"
-                      rows={2}
-                      aria-label={`Почему? ${i + 1}`}
-                      className="w-full rounded-xl px-3 py-2 outline-none resize-none"
-                      style={areaStyle}
-                    />
-                  </div>
-                ))}
+              {/* сворачиваемая цепочка «почему?»: минимум 1, добавляются/удаляются */}
+              <div className="mt-2.5 space-y-1.5">
+                {Array.from({ length: whyCount }, (_, i) => {
+                  const isOpen = openWhys.has(i)
+                  const filled = (whys[i] ?? '').trim().length > 0
+                  return (
+                    <div key={i} className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--line)' }}>
+                      <div className="flex items-center" style={{ background: 'var(--surface-2)' }}>
+                        <button onClick={() => toggleWhy(i)} className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2">
+                          <ChevronDown
+                            size={13}
+                            strokeWidth={1.8}
+                            className="flex-none transition-transform"
+                            style={{ color: 'var(--muted)', transform: isOpen ? 'rotate(180deg)' : 'none' }}
+                          />
+                          <span className="flex-1 text-left" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                            Почему? {i + 1}
+                          </span>
+                          {filled && <span className="flex-none w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />}
+                        </button>
+                        {whyCount > 1 && (
+                          <button
+                            onClick={() => removeWhy(i)}
+                            aria-label={`Удалить вопрос ${i + 1}`}
+                            className="flex-none grid place-items-center rounded-lg mr-2"
+                            style={{ width: 26, height: 26, color: 'var(--muted)' }}
+                          >
+                            <Trash2 size={13} strokeWidth={1.8} />
+                          </button>
+                        )}
+                      </div>
+                      {isOpen && (
+                        <textarea
+                          value={whys[i] ?? ''}
+                          onChange={(e) => setWhy(i, e.target.value)}
+                          placeholder="Потому что…"
+                          rows={2}
+                          aria-label={`Почему? ${i + 1}`}
+                          className="w-full px-3 py-2 outline-none resize-none"
+                          style={{ ...areaStyle, border: 'none', borderTop: '1px solid var(--line)', borderRadius: 0 }}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
                 <button
                   onClick={addWhy}
                   className="w-full flex items-center justify-center gap-1.5 rounded-xl py-2"
@@ -247,14 +306,17 @@ export default function ParamNoteSheet({
                 </button>
               </div>
 
-              {/* свободное поле в конце */}
+              {/* конечный блок — вывод */}
+              <p className="pt-2.5 pb-1" style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
+                Вывод
+              </p>
               <textarea
                 value={note.freeBottom ?? ''}
                 onChange={(e) => onSave('freeBottom', e.target.value)}
-                placeholder="Свободная запись…"
+                placeholder="К чему пришёл…"
                 rows={2}
-                aria-label="Свободная запись в конце"
-                className="w-full mt-2.5 rounded-xl px-3 py-2 outline-none resize-none"
+                aria-label="Вывод"
+                className="w-full rounded-xl px-3 py-2 outline-none resize-none"
                 style={areaStyle}
               />
             </>
@@ -356,7 +418,7 @@ export default function ParamNoteSheet({
                     </div>
                     {(h.parts.freeTop ?? '').trim() && (
                       <p className="mt-1 whitespace-pre-wrap" style={{ fontSize: 12, color: 'var(--text)' }}>
-                        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)' }}>Запись: </span>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)' }}>Мысли: </span>
                         {h.parts.freeTop}
                       </p>
                     )}
@@ -370,7 +432,7 @@ export default function ParamNoteSheet({
                     )}
                     {(h.parts.freeBottom ?? '').trim() && (
                       <p className="mt-1 whitespace-pre-wrap" style={{ fontSize: 12, color: 'var(--text)' }}>
-                        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)' }}>Запись · финал: </span>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)' }}>Вывод: </span>
                         {h.parts.freeBottom}
                       </p>
                     )}
