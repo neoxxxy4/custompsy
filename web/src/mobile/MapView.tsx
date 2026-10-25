@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { Check, ChevronDown, ChevronsUpDown, Columns2, Download, Plus, Rows2, StickyNote } from 'lucide-react'
 import { useLS, allEmotionTags, emotionName, plutchikColor, type Note, type ListRecord, type Diary, type EmotionTag } from '../views/practice/store'
-import ParamNoteSheet, { type ParamNoteHistoryItem } from './ParamNoteSheet'
+import ParamNoteSheet, { normalizeNote, noteHasText, type ParamNoteHistoryItem, type ParamNoteParts } from './ParamNoteSheet'
 import {
   CATEGORIES,
   CX,
@@ -36,11 +36,12 @@ import {
 } from './mapLogic'
 
 // хранилище: снимки + выбранная дата; категории/группы/оптимум — статичные из импорта
-// paramNotes: имя параметра → дата снимка → текст заметки (одна заметка на пункт за снимок)
+// paramNotes: имя параметра → дата снимка → заметка с подблоками (одна на пункт за снимок);
+// старые записи могут быть просто строкой (= общее описание)
 interface StoredSelfMap {
   snapshots: Snapshots
   selectedDate: string | null
-  paramNotes?: Record<string, Record<string, string>>
+  paramNotes?: Record<string, Record<string, ParamNoteParts | string>>
 }
 
 const SEED: StoredSelfMap = {
@@ -81,7 +82,7 @@ export default function MapView() {
   // заметки к пунктам: открытый sheet + выбранная в нём дата + заметки черновика нового снимка
   const [noteParam, setNoteParam] = useState<string | null>(null)
   const [noteDate, setNoteDate] = useState<string | null>(null)
-  const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
+  const [draftNotes, setDraftNotes] = useState<Record<string, ParamNoteParts>>({})
 
   const [anView, setAnView] = useState<'gaps' | 'strengths'>('gaps')
   const [anPanelView, setAnPanelView] = useLS<'list' | 'columns'>('aod4-map-analytics-view', 'list')
@@ -153,7 +154,7 @@ export default function MapView() {
 
   // ─── заметки к пунктам ───
   const paramNotes = stored.paramNotes ?? {}
-  const noteFor = (param: string, date: string) => paramNotes[param]?.[date] ?? ''
+  const notePartsFor = (param: string, date: string): ParamNoteParts => normalizeNote(paramNotes[param]?.[date])
   const noteDraftDate = todayIso()
   // дата, к которой привязана заметка открытого sheet: явно выбранная в нём,
   // в форме — будущий снимок, иначе выбранный
@@ -174,11 +175,15 @@ export default function MapView() {
     setNoteDate(null)
   }
 
-  const saveNote = (param: string, date: string, text: string) => {
+  // пишет один подблок; запись удаляется, когда все подблоки пусты
+  const saveNote = (param: string, date: string, part: keyof ParamNoteParts, text: string) => {
     setStored((s) => {
       const pn = { ...(s.paramNotes ?? {}) }
       const byDate = { ...(pn[param] ?? {}) }
-      if (text.trim()) byDate[date] = text
+      const parts = { ...normalizeNote(byDate[date]) }
+      if (text.trim()) parts[part] = text
+      else delete parts[part]
+      if (noteHasText(parts)) byDate[date] = parts
       else delete byDate[date]
       if (Object.keys(byDate).length > 0) pn[param] = byDate
       else delete pn[param]
@@ -186,25 +191,28 @@ export default function MapView() {
     })
   }
 
-  const saveSheetNote = (param: string, text: string) => {
+  const saveSheetNote = (param: string, part: keyof ParamNoteParts, text: string) => {
     if (isAdding) {
       setDraftNotes((d) => {
         const next = { ...d }
-        if (text.trim()) next[param] = text
+        const parts = { ...normalizeNote(next[param]) }
+        if (text.trim()) parts[part] = text
+        else delete parts[part]
+        if (noteHasText(parts)) next[param] = parts
         else delete next[param]
         return next
       })
     } else {
-      saveNote(param, noteSheetDate, text)
+      saveNote(param, noteSheetDate, part, text)
     }
   }
 
   const noteHistory = (param: string): ParamNoteHistoryItem[] =>
     Object.entries(paramNotes[param] ?? {})
       .sort(([a], [b]) => (a < b ? 1 : -1))
-      .map(([d, text]) => {
+      .map(([d, raw]) => {
         const found = findParamSnapshotValue(snapshots[d], param)
-        return { date: d, value: found, text }
+        return { date: d, value: found, parts: normalizeNote(raw) }
       })
 
   // ─── действия ───
@@ -271,9 +279,9 @@ export default function MapView() {
     const values = draft ? copyValues(draft) : mediumValues()
     setStored((s) => {
       const pn = { ...(s.paramNotes ?? {}) }
-      for (const [param, text] of Object.entries(draftNotes)) {
-        if (!text.trim()) continue
-        pn[param] = { ...(pn[param] ?? {}), [date]: text.trim() }
+      for (const [param, parts] of Object.entries(draftNotes)) {
+        if (!noteHasText(parts)) continue
+        pn[param] = { ...(pn[param] ?? {}), [date]: parts }
       }
       return { snapshots: { ...s.snapshots, [date]: values }, selectedDate: date, paramNotes: pn }
     })
@@ -569,7 +577,7 @@ export default function MapView() {
       const n = norm[catIndex][paramIndex]
       const hasNote = selectedDate
         ? [selectedDate, ...(isDynamics && effBaseline ? [effBaseline] : [])].some(
-            (d) => noteFor(paramName, d).trim().length > 0,
+            (d) => noteHasText(notePartsFor(paramName, d)),
           )
         : false
       return (
@@ -848,7 +856,7 @@ export default function MapView() {
     }
 
     const itemRow = (item: (typeof filtered)[number], indent = 0) => {
-      const hasNote = selectedDate ? noteFor(item.paramName, selectedDate).trim().length > 0 : false
+      const hasNote = selectedDate ? noteHasText(notePartsFor(item.paramName, selectedDate)) : false
       return (
         <div
           key={`${item.catIndex}-${item.paramIndex}`}
@@ -925,7 +933,7 @@ export default function MapView() {
           {headerCard}
           <section className="rounded-2xl overflow-hidden" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
             {filtered.map((item, idx) => {
-              const hasNote = selectedDate ? noteFor(item.paramName, selectedDate).trim().length > 0 : false
+              const hasNote = selectedDate ? noteHasText(notePartsFor(item.paramName, selectedDate)) : false
               return (
                 <div
                   key={`${item.catIndex}-${item.paramIndex}`}
@@ -1351,7 +1359,7 @@ export default function MapView() {
                             style={{
                               width: 24,
                               height: 24,
-                              color: (draftNotes[paramName] ?? '').trim() ? 'var(--accent)' : 'var(--muted)',
+                              color: noteHasText(normalizeNote(draftNotes[paramName])) ? 'var(--accent)' : 'var(--muted)',
                             }}
                           >
                             <StickyNote size={14} strokeWidth={1.8} />
@@ -1507,9 +1515,9 @@ export default function MapView() {
           paramName={noteParam}
           date={noteSheetDate}
           dates={noteSheetDates}
-          note={isAdding ? (draftNotes[noteParam] ?? '') : noteFor(noteParam, noteSheetDate)}
+          note={isAdding ? normalizeNote(draftNotes[noteParam]) : notePartsFor(noteParam, noteSheetDate)}
           history={noteHistory(noteParam)}
-          onSave={(text) => saveSheetNote(noteParam, text)}
+          onSave={(part, text) => saveSheetNote(noteParam, part, text)}
           onPickDate={(d) => setNoteDate(d)}
           onClose={closeNote}
         />

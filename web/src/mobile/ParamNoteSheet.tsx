@@ -2,14 +2,38 @@ import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { formatDateRu } from './mapLogic'
 
+// структура одной большой заметки к пункту: подблоки
+export interface ParamNoteParts {
+  general?: string
+  thoughts?: string
+  actions?: string
+  people?: string
+  emotions?: string
+}
+
+export const NOTE_SECTIONS: { key: keyof ParamNoteParts; label: string; placeholder: string }[] = [
+  { key: 'general', label: 'Общее описание', placeholder: 'Что происходит с этим пунктом…' },
+  { key: 'thoughts', label: 'Мысли', placeholder: 'Что крутится в голове…' },
+  { key: 'actions', label: 'Действия', placeholder: 'Что делаю или собираюсь сделать…' },
+  { key: 'people', label: 'Люди', placeholder: 'Кто связан с этим пунктом…' },
+  { key: 'emotions', label: 'Эмоции', placeholder: 'Что чувствую…' },
+]
+
+// совместимость: раньше заметка была просто строкой → считаем её общим описанием
+export const normalizeNote = (raw: ParamNoteParts | string | undefined): ParamNoteParts =>
+  typeof raw === 'string' ? (raw ? { general: raw } : {}) : (raw ?? {})
+
+export const noteHasText = (parts: ParamNoteParts) =>
+  NOTE_SECTIONS.some((s) => (parts[s.key] ?? '').trim().length > 0)
+
 export interface ParamNoteHistoryItem {
   date: string
   value: number | null
-  text: string
+  parts: ParamNoteParts
 }
 
 // bottom-sheet заметки к пункту карты самооценки:
-// одна заметка на пункт за снимок, редактируется в любое время,
+// одна заметка на пункт за снимок с подблоками, редактируется в любое время,
 // ниже — все записи этого пункта по всем снимкам
 export default function ParamNoteSheet({
   paramName,
@@ -24,9 +48,9 @@ export default function ParamNoteSheet({
   paramName: string
   date: string
   dates?: string[]
-  note: string
+  note: ParamNoteParts
   history: ParamNoteHistoryItem[]
-  onSave: (text: string) => void
+  onSave: (part: keyof ParamNoteParts, text: string) => void
   onPickDate?: (date: string) => void
   onClose: () => void
 }) {
@@ -58,7 +82,7 @@ export default function ParamNoteSheet({
           background: 'var(--surface)',
           border: '1px solid var(--line)',
           borderBottom: 'none',
-          maxHeight: '80vh',
+          maxHeight: '85vh',
           transform: open ? 'translateY(0)' : 'translateY(100%)',
           transition: 'transform .22s ease-out',
           paddingBottom: 'env(safe-area-inset-bottom)',
@@ -104,55 +128,69 @@ export default function ParamNoteSheet({
           </button>
         </div>
 
-        <div className="px-4 pb-2 flex-none">
-          <textarea
-            value={note}
-            onChange={(e) => onSave(e.target.value)}
-            placeholder="Заметка к этому пункту за снимок…"
-            rows={3}
-            className="w-full rounded-xl px-3 py-2 outline-none resize-none"
-            style={{
-              background: 'var(--surface-2)',
-              border: '1px solid var(--line)',
-              color: 'var(--light)',
-              fontSize: 13,
-            }}
-          />
-        </div>
-
-        {history.length > 0 && (
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
-            <p className="pt-1 pb-2" style={{ fontSize: 11, color: 'var(--muted)' }}>
-              Все записи пункта
-            </p>
-            <div className="space-y-1.5">
-              {history.map((h) => (
-                <div
-                  key={h.date}
-                  className="rounded-xl px-3 py-2"
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+          {/* подблоки большой заметки */}
+          <div className="space-y-2.5">
+            {NOTE_SECTIONS.map((s) => (
+              <div key={s.key}>
+                <p className="pb-1" style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
+                  {s.label}
+                </p>
+                <textarea
+                  value={note[s.key] ?? ''}
+                  onChange={(e) => onSave(s.key, e.target.value)}
+                  placeholder={s.placeholder}
+                  rows={2}
+                  aria-label={s.label}
+                  className="w-full rounded-xl px-3 py-2 outline-none resize-none"
                   style={{
                     background: 'var(--surface-2)',
-                    border: `1px solid ${h.date === date ? 'var(--accent)' : 'var(--line)'}`,
+                    border: '1px solid var(--line)',
+                    color: 'var(--light)',
+                    fontSize: 13,
                   }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
-                      {formatDateRu(h.date)}
-                    </span>
-                    {h.value !== null && (
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
-                        {h.value}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-0.5 whitespace-pre-wrap" style={{ fontSize: 12, color: 'var(--text)' }}>
-                    {h.text}
-                  </p>
-                </div>
-              ))}
-            </div>
+                />
+              </div>
+            ))}
           </div>
-        )}
+
+          {history.length > 0 && (
+            <>
+              <p className="pt-3 pb-2" style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Все записи пункта
+              </p>
+              <div className="space-y-1.5">
+                {history.map((h) => (
+                  <div
+                    key={h.date}
+                    className="rounded-xl px-3 py-2"
+                    style={{
+                      background: 'var(--surface-2)',
+                      border: `1px solid ${h.date === date ? 'var(--accent)' : 'var(--line)'}`,
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
+                        {formatDateRu(h.date)}
+                      </span>
+                      {h.value !== null && (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+                          {h.value}
+                        </span>
+                      )}
+                    </div>
+                    {NOTE_SECTIONS.filter((s) => (h.parts[s.key] ?? '').trim()).map((s) => (
+                      <p key={s.key} className="mt-1 whitespace-pre-wrap" style={{ fontSize: 12, color: 'var(--text)' }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)' }}>{s.label}: </span>
+                        {h.parts[s.key]}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
