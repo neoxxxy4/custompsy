@@ -78,8 +78,9 @@ export default function MapView() {
   const [isAdding, setIsAdding] = useState(false)
   const [draft, setDraft] = useState<Snapshot | null>(null)
 
-  // заметки к пунктам: открытый sheet + заметки черновика нового снимка
+  // заметки к пунктам: открытый sheet + выбранная в нём дата + заметки черновика нового снимка
   const [noteParam, setNoteParam] = useState<string | null>(null)
+  const [noteDate, setNoteDate] = useState<string | null>(null)
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
 
   const [anView, setAnView] = useState<'gaps' | 'strengths'>('gaps')
@@ -154,8 +155,24 @@ export default function MapView() {
   const paramNotes = stored.paramNotes ?? {}
   const noteFor = (param: string, date: string) => paramNotes[param]?.[date] ?? ''
   const noteDraftDate = todayIso()
-  // дата, к которой привязана заметка открытого sheet: в форме — будущий снимок, иначе выбранный
-  const noteSheetDate = isAdding ? noteDraftDate : (selectedDate ?? noteDraftDate)
+  // дата, к которой привязана заметка открытого sheet: явно выбранная в нём,
+  // в форме — будущий снимок, иначе выбранный
+  const noteSheetDate = noteDate ?? (isAdding ? noteDraftDate : (selectedDate ?? noteDraftDate))
+  // в динамике заметку можно вести по любой из двух сравниваемых дат
+  const noteSheetDates =
+    !isAdding && tab === 'dynamics' && selectedDate && effBaseline
+      ? [selectedDate, effBaseline]
+      : undefined
+
+  const openNote = (param: string, date?: string) => {
+    setNoteParam(param)
+    setNoteDate(date ?? null)
+  }
+
+  const closeNote = () => {
+    setNoteParam(null)
+    setNoteDate(null)
+  }
 
   const saveNote = (param: string, date: string, text: string) => {
     setStored((s) => {
@@ -197,7 +214,7 @@ export default function MapView() {
     setIsAdding(false)
     setDraft(null)
     setDraftNotes({})
-    setNoteParam(null)
+    closeNote()
   }
 
   const switchTab = (t: MapTab) => {
@@ -205,7 +222,7 @@ export default function MapView() {
     setIsAdding(false)
     setDraft(null)
     setDraftNotes({})
-    setNoteParam(null)
+    closeNote()
     if (t === 'dynamics') {
       // по умолчанию baseline — предыдущая дата перед выбранной
       const idx = dates.indexOf(selectedDate ?? '')
@@ -240,7 +257,7 @@ export default function MapView() {
       setDraft(null)
       setTouchedParams(new Set())
       setDraftNotes({})
-      setNoteParam(null)
+      closeNote()
       return
     }
     setDraft(mediumValues())
@@ -264,7 +281,7 @@ export default function MapView() {
     setDraft(null)
     setTouchedParams(new Set())
     setDraftNotes({})
-    setNoteParam(null)
+    closeNote()
   }
 
   const exportText = () => {
@@ -550,7 +567,11 @@ export default function MapView() {
       const paramName = CATEGORIES[catIndex].params[paramIndex]
       const raw = rawV[catIndex][paramIndex]
       const n = norm[catIndex][paramIndex]
-      const hasNote = !isDynamics && selectedDate ? (noteFor(paramName, selectedDate).trim().length > 0) : false
+      const hasNote = selectedDate
+        ? [selectedDate, ...(isDynamics && effBaseline ? [effBaseline] : [])].some(
+            (d) => noteFor(paramName, d).trim().length > 0,
+          )
+        : false
       return (
         <div
           key={paramIndex}
@@ -566,9 +587,9 @@ export default function MapView() {
           >
             {isDynamics ? fmtSigned(raw) : raw}
           </span>
-          {!isDynamics && selectedDate && (
+          {selectedDate && (
             <button
-              onClick={() => setNoteParam(paramName)}
+              onClick={() => openNote(paramName)}
               aria-label={`Заметка: ${paramName}`}
               className="flex-none grid place-items-center rounded-lg"
               style={{ width: 24, height: 24, color: hasNote ? 'var(--accent)' : 'var(--muted)' }}
@@ -826,23 +847,36 @@ export default function MapView() {
       )
     }
 
-    const itemRow = (item: (typeof filtered)[number], indent = 0) => (
-      <div
-        key={`${item.catIndex}-${item.paramIndex}`}
-        className="flex items-center gap-2 px-3 py-1.5"
-        style={{ paddingLeft: indent, borderTop: '1px solid var(--line)' }}
-      >
-        <span className="flex-1 min-w-0" style={{ fontSize: 12, color: 'var(--text)' }}>
-          {item.paramName}
-        </span>
-        <span
-          className="flex-none"
-          style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: valueHex(false, item.currentNorm) }}
+    const itemRow = (item: (typeof filtered)[number], indent = 0) => {
+      const hasNote = selectedDate ? noteFor(item.paramName, selectedDate).trim().length > 0 : false
+      return (
+        <div
+          key={`${item.catIndex}-${item.paramIndex}`}
+          className="flex items-center gap-2 px-3 py-1.5"
+          style={{ paddingLeft: indent, borderTop: '1px solid var(--line)' }}
         >
-          {item.currentRaw}
-        </span>
-      </div>
-    )
+          <span className="flex-1 min-w-0" style={{ fontSize: 12, color: 'var(--text)' }}>
+            {item.paramName}
+          </span>
+          <span
+            className="flex-none"
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: valueHex(false, item.currentNorm) }}
+          >
+            {item.currentRaw}
+          </span>
+          {selectedDate && (
+            <button
+              onClick={() => openNote(item.paramName)}
+              aria-label={`Заметка: ${item.paramName}`}
+              className="flex-none grid place-items-center rounded-lg"
+              style={{ width: 24, height: 24, color: hasNote ? 'var(--accent)' : 'var(--muted)' }}
+            >
+              <StickyNote size={13} strokeWidth={1.8} />
+            </button>
+          )}
+        </div>
+      )
+    }
 
     if (anPanelView === 'columns') {
       return (
@@ -1298,7 +1332,7 @@ export default function MapView() {
                         </span>
                         <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => setNoteParam(paramName)}
+                            onClick={() => openNote(paramName)}
                             aria-label={`Заметка: ${paramName}`}
                             className="grid place-items-center rounded-lg"
                             style={{
@@ -1459,10 +1493,12 @@ export default function MapView() {
         <ParamNoteSheet
           paramName={noteParam}
           date={noteSheetDate}
+          dates={noteSheetDates}
           note={isAdding ? (draftNotes[noteParam] ?? '') : noteFor(noteParam, noteSheetDate)}
           history={noteHistory(noteParam)}
           onSave={(text) => saveSheetNote(noteParam, text)}
-          onClose={() => setNoteParam(null)}
+          onPickDate={(d) => setNoteDate(d)}
+          onClose={closeNote}
         />
       )}
     </div>

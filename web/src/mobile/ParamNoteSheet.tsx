@@ -14,16 +14,20 @@ export interface ParamNoteHistoryItem {
 export default function ParamNoteSheet({
   paramName,
   date,
+  dates,
   note,
   history,
   onSave,
+  onPickDate,
   onClose,
 }: {
   paramName: string
   date: string
+  dates?: string[]
   note: string
   history: ParamNoteHistoryItem[]
   onSave: (text: string) => void
+  onPickDate?: (date: string) => void
   onClose: () => void
 }) {
   const [mounted, setMounted] = useState(false)
@@ -67,9 +71,29 @@ export default function ParamNoteSheet({
           <p className="flex-1 min-w-0 truncate" style={{ fontSize: 14, fontWeight: 600, color: 'var(--light)' }}>
             {paramName}
           </p>
-          <span className="flex-none" style={{ fontSize: 11, color: 'var(--muted)' }}>
-            {formatDateRu(date)}
-          </span>
+          {dates && dates.length > 1 ? (
+            <div className="flex-none flex rounded-lg p-0.5" style={{ background: 'var(--surface-2)' }}>
+              {dates.map((d) => (
+                <button
+                  key={d}
+                  onClick={() => onPickDate?.(d)}
+                  className="rounded-md px-2 py-0.5 transition-colors"
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    background: d === date ? 'var(--active-bg)' : 'transparent',
+                    color: d === date ? 'var(--accent)' : 'var(--muted)',
+                  }}
+                >
+                  {formatDateRu(d)}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span className="flex-none" style={{ fontSize: 11, color: 'var(--muted)' }}>
+              {formatDateRu(date)}
+            </span>
+          )}
           <button
             onClick={close}
             aria-label="Закрыть"
