@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { Check, ChevronDown, ChevronsUpDown, Columns2, Download, Plus, Rows2 } from 'lucide-react'
+import { Check, ChevronDown, ChevronsUpDown, Columns2, Download, Plus, Rows2, StickyNote } from 'lucide-react'
 import { useLS, allEmotionTags, emotionName, plutchikColor, type Note, type ListRecord, type Diary, type EmotionTag } from '../views/practice/store'
+import ParamNoteSheet, { type ParamNoteHistoryItem } from './ParamNoteSheet'
 import {
   CATEGORIES,
   CX,
@@ -20,6 +21,7 @@ import {
   dynamicsError,
   fmtSigned,
   formatDateRu,
+  findParamSnapshotValue,
   isInverseParam,
   mediumValues,
   pointOnCircle,
@@ -34,9 +36,11 @@ import {
 } from './mapLogic'
 
 // хранилище: снимки + выбранная дата; категории/группы/оптимум — статичные из импорта
+// paramNotes: имя параметра → дата снимка → текст заметки (одна заметка на пункт за снимок)
 interface StoredSelfMap {
   snapshots: Snapshots
   selectedDate: string | null
+  paramNotes?: Record<string, Record<string, string>>
 }
 
 const SEED: StoredSelfMap = {
@@ -73,6 +77,10 @@ export default function MapView() {
   // форма «Добавить»
   const [isAdding, setIsAdding] = useState(false)
   const [draft, setDraft] = useState<Snapshot | null>(null)
+
+  // заметки к пунктам: открытый sheet + заметки черновика нового снимка
+  const [noteParam, setNoteParam] = useState<string | null>(null)
+  const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
 
   const [anView, setAnView] = useState<'gaps' | 'strengths'>('gaps')
   const [anPanelView, setAnPanelView] = useLS<'list' | 'columns'>('aod4-map-analytics-view', 'list')
@@ -142,18 +150,62 @@ export default function MapView() {
     isDynamics ? rainbowColorSigned(v) : valueHex(false, v)
   const radiusOf = (v: number, isCenter = false) => radiusForValue(isDynamics, v, isCenter)
 
+  // ─── заметки к пунктам ───
+  const paramNotes = stored.paramNotes ?? {}
+  const noteFor = (param: string, date: string) => paramNotes[param]?.[date] ?? ''
+  const noteDraftDate = todayIso()
+  // дата, к которой привязана заметка открытого sheet: в форме — будущий снимок, иначе выбранный
+  const noteSheetDate = isAdding ? noteDraftDate : (selectedDate ?? noteDraftDate)
+
+  const saveNote = (param: string, date: string, text: string) => {
+    setStored((s) => {
+      const pn = { ...(s.paramNotes ?? {}) }
+      const byDate = { ...(pn[param] ?? {}) }
+      if (text.trim()) byDate[date] = text
+      else delete byDate[date]
+      if (Object.keys(byDate).length > 0) pn[param] = byDate
+      else delete pn[param]
+      return { ...s, paramNotes: pn }
+    })
+  }
+
+  const saveSheetNote = (param: string, text: string) => {
+    if (isAdding) {
+      setDraftNotes((d) => {
+        const next = { ...d }
+        if (text.trim()) next[param] = text
+        else delete next[param]
+        return next
+      })
+    } else {
+      saveNote(param, noteSheetDate, text)
+    }
+  }
+
+  const noteHistory = (param: string): ParamNoteHistoryItem[] =>
+    Object.entries(paramNotes[param] ?? {})
+      .sort(([a], [b]) => (a < b ? 1 : -1))
+      .map(([d, text]) => {
+        const found = findParamSnapshotValue(snapshots[d], param)
+        return { date: d, value: found, text }
+      })
+
   // ─── действия ───
   const selectDate = (date: string) => {
     if (!snapshots[date]) return
     setStored((s) => ({ ...s, selectedDate: date }))
     setIsAdding(false)
     setDraft(null)
+    setDraftNotes({})
+    setNoteParam(null)
   }
 
   const switchTab = (t: MapTab) => {
     setTab(t)
     setIsAdding(false)
     setDraft(null)
+    setDraftNotes({})
+    setNoteParam(null)
     if (t === 'dynamics') {
       // по умолчанию baseline — предыдущая дата перед выбранной
       const idx = dates.indexOf(selectedDate ?? '')
@@ -187,20 +239,32 @@ export default function MapView() {
       setIsAdding(false)
       setDraft(null)
       setTouchedParams(new Set())
+      setDraftNotes({})
+      setNoteParam(null)
       return
     }
     setDraft(mediumValues())
     setIsAdding(true)
     setTouchedParams(new Set())
+    setDraftNotes({})
   }
 
   const addDate = () => {
     const date = todayIso()
     const values = draft ? copyValues(draft) : mediumValues()
-    setStored((s) => ({ snapshots: { ...s.snapshots, [date]: values }, selectedDate: date }))
+    setStored((s) => {
+      const pn = { ...(s.paramNotes ?? {}) }
+      for (const [param, text] of Object.entries(draftNotes)) {
+        if (!text.trim()) continue
+        pn[param] = { ...(pn[param] ?? {}), [date]: text.trim() }
+      }
+      return { snapshots: { ...s.snapshots, [date]: values }, selectedDate: date, paramNotes: pn }
+    })
     setIsAdding(false)
     setDraft(null)
     setTouchedParams(new Set())
+    setDraftNotes({})
+    setNoteParam(null)
   }
 
   const exportText = () => {
@@ -486,6 +550,7 @@ export default function MapView() {
       const paramName = CATEGORIES[catIndex].params[paramIndex]
       const raw = rawV[catIndex][paramIndex]
       const n = norm[catIndex][paramIndex]
+      const hasNote = !isDynamics && selectedDate ? (noteFor(paramName, selectedDate).trim().length > 0) : false
       return (
         <div
           key={paramIndex}
@@ -501,6 +566,16 @@ export default function MapView() {
           >
             {isDynamics ? fmtSigned(raw) : raw}
           </span>
+          {!isDynamics && selectedDate && (
+            <button
+              onClick={() => setNoteParam(paramName)}
+              aria-label={`Заметка: ${paramName}`}
+              className="flex-none grid place-items-center rounded-lg"
+              style={{ width: 24, height: 24, color: hasNote ? 'var(--accent)' : 'var(--muted)' }}
+            >
+              <StickyNote size={13} strokeWidth={1.8} />
+            </button>
+          )}
         </div>
       )
     }
@@ -1222,6 +1297,18 @@ export default function MapView() {
                           {touched && <Check size={12} strokeWidth={2.5} style={{ color: 'var(--accent)' }} />}
                         </span>
                         <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setNoteParam(paramName)}
+                            aria-label={`Заметка: ${paramName}`}
+                            className="grid place-items-center rounded-lg"
+                            style={{
+                              width: 24,
+                              height: 24,
+                              color: (draftNotes[paramName] ?? '').trim() ? 'var(--accent)' : 'var(--muted)',
+                            }}
+                          >
+                            <StickyNote size={14} strokeWidth={1.8} />
+                          </button>
                           <span
                             className="w-2.5 h-2.5 rounded-full"
                             style={{ background: valueHex(false, isInverseParam(catIndex, paramIndex) ? 12 - draft[catIndex][paramIndex] : draft[catIndex][paramIndex]) }}
@@ -1366,6 +1453,18 @@ export default function MapView() {
 
       {/* панель под графом */}
       {isAdding ? renderAddPanel() : tab === 'analytics' ? renderAnalyticsPanel() : renderDataPanel()}
+
+      {/* заметка пункта: редактирование + история по всем снимкам */}
+      {noteParam && (
+        <ParamNoteSheet
+          paramName={noteParam}
+          date={noteSheetDate}
+          note={isAdding ? (draftNotes[noteParam] ?? '') : noteFor(noteParam, noteSheetDate)}
+          history={noteHistory(noteParam)}
+          onSave={(text) => saveSheetNote(noteParam, text)}
+          onClose={() => setNoteParam(null)}
+        />
+      )}
     </div>
   )
 }

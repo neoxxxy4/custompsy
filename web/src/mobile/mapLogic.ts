@@ -179,6 +179,14 @@ export function findParamIndex(paramName: string): { catIndex: number; paramInde
   return null
 }
 
+// сырое значение параметра по имени в конкретном снимке (null — снимка/параметра нет)
+export function findParamSnapshotValue(snapshot: Snapshot | undefined, paramName: string): number | null {
+  if (!snapshot) return null
+  const found = findParamIndex(paramName)
+  if (!found) return null
+  return snapshot[found.catIndex][found.paramIndex]
+}
+
 export function computeAnalyticsItems(snapshot: Snapshot): AnalyticsItem[] {
   const items: AnalyticsItem[] = []
   CATEGORIES.forEach((cat, catIndex) => {
