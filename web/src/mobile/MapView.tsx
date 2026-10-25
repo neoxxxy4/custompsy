@@ -924,24 +924,37 @@ export default function MapView() {
         <div>
           {headerCard}
           <section className="rounded-2xl overflow-hidden" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
-            {filtered.map((item, idx) => (
-              <div
-                key={`${item.catIndex}-${item.paramIndex}`}
-                className="flex items-center gap-2 px-3 py-1.5"
-                style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--line)' }}
-              >
-                <span className="flex-1 min-w-0" style={{ fontSize: 12, color: 'var(--text)' }}>
-                  {item.paramName}
-                  <span style={{ fontSize: 10, color: 'var(--muted)', marginLeft: 6 }}>{item.categoryName}</span>
-                </span>
-                <span
-                  className="flex-none"
-                  style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: valueHex(false, item.currentNorm) }}
+            {filtered.map((item, idx) => {
+              const hasNote = selectedDate ? noteFor(item.paramName, selectedDate).trim().length > 0 : false
+              return (
+                <div
+                  key={`${item.catIndex}-${item.paramIndex}`}
+                  className="flex items-center gap-2 px-3 py-1.5"
+                  style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--line)' }}
                 >
-                  {item.currentRaw}
-                </span>
-              </div>
-            ))}
+                  <span className="flex-1 min-w-0" style={{ fontSize: 12, color: 'var(--text)' }}>
+                    {item.paramName}
+                    <span style={{ fontSize: 10, color: 'var(--muted)', marginLeft: 6 }}>{item.categoryName}</span>
+                  </span>
+                  <span
+                    className="flex-none"
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: valueHex(false, item.currentNorm) }}
+                  >
+                    {item.currentRaw}
+                  </span>
+                  {selectedDate && (
+                    <button
+                      onClick={() => openNote(item.paramName)}
+                      aria-label={`Заметка: ${item.paramName}`}
+                      className="flex-none grid place-items-center rounded-lg"
+                      style={{ width: 24, height: 24, color: hasNote ? 'var(--accent)' : 'var(--muted)' }}
+                    >
+                      <StickyNote size={13} strokeWidth={1.8} />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
           </section>
         </div>
       )
