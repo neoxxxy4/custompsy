@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Send, Trash2 } from 'lucide-react'
 import { uid, useLS } from '../views/practice/store'
 import { buildAiContext } from './aiContext'
+import { runAiActions, type AiActionResult } from './aiActions'
 
 interface ChatMsg {
   id: string
   role: 'user' | 'assistant'
   content: string
   ts: number
+  actions?: AiActionResult[]
 }
 
 const HISTORY_LIMIT = 14
@@ -45,7 +47,11 @@ export default function TherapyChat() {
       })
       const data = await r.json().catch(() => null)
       if (!r.ok) throw new Error(data?.error ?? `статус ${r.status}`)
-      setMessages((ms) => [...ms, { id: uid(), role: 'assistant', content: String(data.reply ?? '…'), ts: Date.now() }])
+      const { clean, results } = runAiActions(String(data.reply ?? '…'))
+      setMessages((ms) => [
+        ...ms,
+        { id: uid(), role: 'assistant', content: clean || 'Готово.', ts: Date.now(), actions: results.length ? results : undefined },
+      ])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'нет связи')
     } finally {
@@ -87,6 +93,15 @@ export default function TherapyChat() {
               }}
             >
               {m.content}
+              {m.actions && (
+                <div className="mt-1.5 pt-1.5" style={{ borderTop: '1px solid var(--line)' }}>
+                  {m.actions.map((a, i) => (
+                    <p key={i} style={{ fontSize: 11, color: a.ok ? 'var(--accent)' : '#ef4444' }}>
+                      {a.ok ? '✓ ' : '✗ '}{a.text}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}

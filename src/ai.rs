@@ -16,6 +16,21 @@ const SYSTEM_PROMPT: &str = "Ты — поддерживающий психол�
 ты их видишь. Если пользователь спрашивает, видишь ли ты его данные, — отвечай «да» и кратко перечисли, \
 что именно видишь. Если блока с данными нет — честно скажи, что данных нет.";
 
+const ACTIONS_SPEC: &str = "Ты можешь ВЫПОЛНЯТЬ ДЕЙСТВИЯ в приложении пользователя, когда он явно просит \
+(«добавь», «запиши», «отметь», «создай», «поставь»). Формат — отдельный блок в ответе:\n\
+[ACTION]{\"type\":\"...\",...}[/ACTION]\n\
+Доступные type:\n\
+- add_task {\"text\":\"...\"} — задача на сегодня\n\
+- add_therapy_note {\"category\":\"trauma|offense|shame|guilt|fear|anger|other\",\"text\":\"...\"} — запись в Терапию\n\
+- add_note {\"title\":\"...\",\"body\":\"...\"} — заметка\n\
+- add_listrec {\"kind\":\"checklist|list\",\"title\":\"...\",\"items\":[\"...\"]} — чек-лист или список в Записях\n\
+- add_psysoc_person {\"name\":\"...\"} — человек в Социуме\n\
+- add_psysoc_situation {\"person\":\"имя\",\"text\":\"...\",\"emo\":\"trauma|offense|shame|guilt|fear|anger\",\"sign\":0-12} — ситуация человеку (человек создаётся, если его нет)\n\
+- set_belief {\"match\":\"фрагмент текста убеждения\",\"strength\":0-12} — выставить силу убеждения\n\
+- set_path_pct {\"pct\":0-100} — шкала ненормальности\n\
+Правила: JSON строго однострочный; действие только по явной просьбе пользователя, никогда не выдумывай; \
+после блока одним предложением подтверди, что сделал.";
+
 const TOKEN_TTL: Duration = Duration::from_secs(25 * 60);
 const MAX_MESSAGES: usize = 30;
 const MAX_CONTENT: usize = 4000;
@@ -118,7 +133,7 @@ pub async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -
         return Err(ApiError(StatusCode::BAD_REQUEST, "пустой запрос".into()));
     }
 
-    let mut system = SYSTEM_PROMPT.to_string();
+    let mut system = format!("{SYSTEM_PROMPT}\n\n{ACTIONS_SPEC}").to_string();
     let ctx_len = req.context.as_deref().map(|c| c.len()).unwrap_or(0);
     println!("ai/chat: messages={}, context={} байт", clean.len(), ctx_len);
     if let Some(ctx) = req.context {
