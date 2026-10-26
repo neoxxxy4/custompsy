@@ -138,7 +138,8 @@ pub async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -
 
     let mut system = format!("{SYSTEM_PROMPT}\n\n{ACTIONS_SPEC}").to_string();
     let ctx_len = req.context.as_deref().map(|c| c.len()).unwrap_or(0);
-    println!("ai/chat: messages={}, context={} байт", clean.len(), ctx_len);
+    let last_user: String = clean.last().map(|m| m.content.chars().take(150).collect()).unwrap_or_default();
+    println!("ai/chat: messages={}, context={} байт, вопрос: {}", clean.len(), ctx_len, last_user);
     if let Some(ctx) = req.context {
         let ctx: String = ctx.chars().take(8000).collect();
         if !ctx.trim().is_empty() {
@@ -170,6 +171,7 @@ pub async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -
     if !res.status().is_success() {
         let status = res.status();
         let text = res.text().await.unwrap_or_default();
+        println!("ai/chat ошибка: gigachat {status} {}", &text[..text.len().min(300)]);
         return Err(ApiError(StatusCode::BAD_GATEWAY, format!("gigachat: {status} {}", &text[..text.len().min(200)])));
     }
     let body: serde_json::Value = res
@@ -180,5 +182,6 @@ pub async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -
         .as_str()
         .unwrap_or("…")
         .to_string();
+    println!("ai/chat ответ: {}", reply.chars().take(400).collect::<String>());
     Ok(Json(ChatResponse { reply }))
 }
