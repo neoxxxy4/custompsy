@@ -8,17 +8,26 @@ import { ALL_BELIEFS, BELIEF_CATEGORIES, type BeliefRef } from './beliefsData'
 const VIEWBOX = 800
 const CX = VIEWBOX / 2
 const CY = VIEWBOX / 2
-const R_MAX = 330 // сила 0 — внешний край
-const R_MIN = 70 // сила 10 — почти центр
-const radiusFor = (strength: number) => R_MAX - (strength / 10) * (R_MAX - R_MIN)
+const R_MAX = 320 // сила 10 — край круга; 0 — центр
+const radiusFor = (strength: number) => (strength / 10) * R_MAX
 
-// узлы раскладываются дугой внутри сектора своей категории
-function nodeAngle(ref: BeliefRef): number {
+// угловые границы клина убеждения внутри сектора категории
+function wedgeAngles(ref: BeliefRef): [number, number] {
   const sector = (Math.PI * 2) / BELIEF_CATEGORIES.length
   const start = -Math.PI / 2 + ref.catIndex * sector
   const n = ref.category.beliefs.length
-  const pad = sector * 0.14
-  return start + pad + ((ref.beliefIndex + 0.5) / n) * (sector - pad * 2)
+  const pad = sector * 0.06
+  const w = (sector - pad * 2) / n
+  return [start + pad + ref.beliefIndex * w, start + pad + (ref.beliefIndex + 1) * w]
+}
+
+const polar = (a: number, r: number) => ({ x: CX + Math.cos(a) * r, y: CY + Math.sin(a) * r })
+
+// path закрашенного клина от центра до радиуса силы
+function wedgePath(a1: number, a2: number, r: number): string {
+  const p1 = polar(a1, r)
+  const p2 = polar(a2, r)
+  return `M ${CX} ${CY} L ${p1.x} ${p1.y} A ${r} ${r} 0 0 1 ${p2.x} ${p2.y} Z`
 }
 
 // ─── слайдер силы 0–10 ───
@@ -162,11 +171,10 @@ export default function BeliefsView() {
           const mid = start + sector / 2
           const cos = Math.cos(mid)
           const sin = Math.sin(mid)
-          // подпись внутрь от края: у крайних секторов прижимаем к стороне
           const anchor = cos > 0.4 ? 'start' : cos < -0.4 ? 'end' : 'middle'
-          const lr = R_MAX - 4
-          const lx = CX + cos * lr + (anchor === 'start' ? 6 : anchor === 'end' ? -6 : 0)
-          const ly = CY + sin * lr + (sin > 0.4 ? -6 : sin < -0.4 ? 14 : 4)
+          const lr = R_MAX + 6
+          const lx = CX + cos * lr
+          const ly = CY + sin * lr
           return (
             <g key={ci}>
               <line x1={CX} y1={CY} x2={x} y2={y} stroke="var(--line)" strokeWidth={1} opacity={0.6} />
@@ -174,6 +182,7 @@ export default function BeliefsView() {
                 x={lx}
                 y={ly}
                 textAnchor={anchor}
+                dominantBaseline="middle"
                 style={{ fontSize: 13, fontWeight: 600, fill: cat.color, fontFamily: 'var(--font-body)', opacity: 0.9 }}
               >
                 {wrapText(cat.name, 10).map((line, li, arr) => (
@@ -186,81 +195,65 @@ export default function BeliefsView() {
           )
         })}
 
-        {/* линии центр → узел */}
+        {/* закрашенные сектора убеждений: от центра (0) до края (10) */}
         {ALL_BELIEFS.map((ref) => {
           const s = strengthOf(ref.id)
-          if (s === 0) return null
-          const a = nodeAngle(ref)
-          const r = radiusFor(s)
+          const [a1, a2] = wedgeAngles(ref)
+          const r = Math.max(radiusFor(s), 10) // минимальный клин для кликабельности
+          const isSel = selected?.id === ref.id
           return (
-            <line
-              key={`l-${ref.id}`}
-              x1={CX}
-              y1={CY}
-              x2={CX + Math.cos(a) * r}
-              y2={CY + Math.sin(a) * r}
-              stroke={ref.category.color}
-              strokeWidth={1.2}
-              opacity={0.12 + (s / 10) * 0.35}
+            <path
+              key={ref.id}
+              d={wedgePath(a1, a2, r)}
+              fill={ref.category.color}
+              opacity={s === 0 ? 0.1 : 0.2 + (s / 10) * 0.7}
+              stroke={isSel ? 'var(--light)' : 'var(--bg)'}
+              strokeWidth={isSel ? 2 : 0.5}
+              onClick={() => setSelected(isSel ? null : ref)}
+              style={{ cursor: 'pointer' }}
             />
           )
         })}
 
         {/* центр — средняя сила */}
-        <circle cx={CX} cy={CY} r={34} fill="var(--surface-2)" stroke="var(--line)" strokeWidth={1.5} />
+        <circle cx={CX} cy={CY} r={34} fill="var(--surface-2)" stroke="var(--line)" strokeWidth={1.5} pointerEvents="none" />
         <text
           x={CX}
           y={CY + 1}
           textAnchor="middle"
           dominantBaseline="middle"
+          pointerEvents="none"
           style={{ fontSize: 18, fontWeight: 700, fill: 'var(--light)', fontFamily: 'var(--font-mono)' }}
         >
           {overall}
         </text>
 
-        {/* узлы убеждений */}
+        {/* подписи сильных убеждений — за краем круга */}
         {ALL_BELIEFS.map((ref) => {
           const s = strengthOf(ref.id)
-          const a = nodeAngle(ref)
-          const r = radiusFor(s)
-          const x = CX + Math.cos(a) * r
-          const y = CY + Math.sin(a) * r
-          const nodeR = 6 + s * 1.5
-          const isSel = selected?.id === ref.id
+          if (s < 6) return null
+          const [a1, a2] = wedgeAngles(ref)
+          const mid = (a1 + a2) / 2
+          const cos = Math.cos(mid)
+          const sin = Math.sin(mid)
+          const anchor = cos > 0.3 ? 'start' : cos < -0.3 ? 'end' : 'middle'
+          const p = polar(mid, R_MAX + 8)
           return (
-            <g key={ref.id} onClick={() => setSelected(isSel ? null : ref)} style={{ cursor: 'pointer' }}>
-              <circle
-                cx={x}
-                cy={y}
-                r={Math.max(nodeR, 14)}
-                fill="transparent"
-              />
-              <circle
-                cx={x}
-                cy={y}
-                r={nodeR}
-                fill={ref.category.color}
-                opacity={s === 0 ? 0.22 : 0.55 + (s / 10) * 0.45}
-                stroke={isSel ? 'var(--light)' : 'var(--bg)'}
-                strokeWidth={isSel ? 2.5 : 1.5}
-              />
-              {s >= 6 && (
-                <text
-                  x={x + Math.cos(a) * (nodeR + 8)}
-                  y={y + Math.sin(a) * (nodeR + 8)}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  pointerEvents="none"
-                  style={{ fontSize: 10.5, fill: 'var(--muted)', fontFamily: 'var(--font-body)' }}
-                >
-                  {wrapText(ref.belief.short, 14).map((line, li) => (
-                    <tspan key={li} x={x + Math.cos(a) * (nodeR + 8)} dy={li === 0 ? (wrapText(ref.belief.short, 14).length - 1) * -6 : 12}>
-                      {line}
-                    </tspan>
-                  ))}
-                </text>
-              )}
-            </g>
+            <text
+              key={`t-${ref.id}`}
+              x={p.x}
+              y={p.y}
+              textAnchor={anchor}
+              dominantBaseline="middle"
+              pointerEvents="none"
+              style={{ fontSize: 10.5, fill: 'var(--muted)', fontFamily: 'var(--font-body)' }}
+            >
+              {wrapText(ref.belief.short, 14).map((line, li, arr) => (
+                <tspan key={li} x={p.x} dy={li === 0 ? (arr.length - 1) * -6 : 12}>
+                  {line}
+                </tspan>
+              ))}
+            </text>
           )
         })}
       </svg>
