@@ -1,36 +1,29 @@
 import { useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useLS } from '../views/practice/store'
-import { wrapText } from './mapLogic'
+import { rainbowColor, round2, wrapText } from './mapLogic'
 import { ALL_BELIEFS, BELIEF_CATEGORIES, type BeliefRef } from './beliefsData'
 
-// ─── геометрия графа ───
+// ─── геометрия графа (как в карте самооценки): центр → острова-категории → убеждения ───
 const VIEWBOX = 800
 const CX = VIEWBOX / 2
 const CY = VIEWBOX / 2
-const R_MAX = 320 // сила 10 — край круга; 0 — центр
-const radiusFor = (strength: number) => (strength / 10) * R_MAX
+const R_CATEGORY = 250
+const R_BELIEF = 345
 
-// угловые границы клина убеждения внутри сектора категории
-function wedgeAngles(ref: BeliefRef): [number, number] {
-  const sector = (Math.PI * 2) / BELIEF_CATEGORIES.length
-  const start = -Math.PI / 2 + ref.catIndex * sector
+const SECTOR = (Math.PI * 2) / BELIEF_CATEGORIES.length
+const catAngle = (ci: number) => -Math.PI / 2 + ci * SECTOR + SECTOR / 2
+const beliefAngle = (ref: BeliefRef) => {
+  const mid = catAngle(ref.catIndex)
   const n = ref.category.beliefs.length
-  const pad = sector * 0.06
-  const w = (sector - pad * 2) / n
-  return [start + pad + ref.beliefIndex * w, start + pad + (ref.beliefIndex + 1) * w]
+  const spread = SECTOR * 0.76
+  return mid - spread / 2 + ((ref.beliefIndex + 0.5) / n) * spread
 }
-
 const polar = (a: number, r: number) => ({ x: CX + Math.cos(a) * r, y: CY + Math.sin(a) * r })
 
-// path закрашенного клина от центра до радиуса силы
-function wedgePath(a1: number, a2: number, r: number): string {
-  const p1 = polar(a1, r)
-  const p2 = polar(a2, r)
-  return `M ${CX} ${CY} L ${p1.x} ${p1.y} A ${r} ${r} 0 0 1 ${p2.x} ${p2.y} Z`
-}
+type GraphKind = 'v1' | 'v2'
 
-// ─── слайдер силы 0–10 ───
+// ─── слайдер силы 0–12 ───
 function StrengthSlider({
   value,
   color,
@@ -49,7 +42,7 @@ function StrengthSlider({
     const rect = trackRef.current?.getBoundingClientRect()
     if (!rect) return
     const ratio = (clientX - rect.left) / rect.width
-    const next = Math.max(0, Math.min(10, Math.round(ratio * 10)))
+    const next = Math.max(0, Math.min(12, Math.round(ratio * 12)))
     if (next !== value) onChange(next)
   }
 
@@ -59,7 +52,7 @@ function StrengthSlider({
       role="slider"
       aria-label={aria}
       aria-valuemin={0}
-      aria-valuemax={10}
+      aria-valuemax={12}
       aria-valuenow={value}
       onPointerDown={(e) => {
         e.preventDefault()
@@ -84,7 +77,7 @@ function StrengthSlider({
       />
       <div
         className="absolute left-0 rounded-md"
-        style={{ top: 7, bottom: 7, width: `${(value / 10) * 100}%`, background: color, opacity: 0.35 }}
+        style={{ top: 7, bottom: 7, width: `${(value / 12) * 100}%`, background: color, opacity: 0.35 }}
       />
       <div
         className="absolute rounded-full"
@@ -92,7 +85,7 @@ function StrengthSlider({
           top: 0,
           width: 18,
           height: 18,
-          left: `${(value / 10) * 100}%`,
+          left: `${(value / 12) * 100}%`,
           transform: 'translateX(-50%)',
           background: value > 0 ? color : 'var(--surface-2)',
           border: '2px solid var(--surface)',
@@ -106,6 +99,7 @@ function StrengthSlider({
 export default function BeliefsView() {
   const [strengths, setStrengths] = useLS<Record<string, number>>('aod4-beliefs-v1', {})
   const [tab, setTab] = useState<'list' | 'graph'>('list')
+  const [graphKind, setGraphKind] = useState<GraphKind>('v1')
   const [openCats, setOpenCats] = useState<Set<number>>(() => new Set(BELIEF_CATEGORIES.map((_, i) => i)))
   const [selected, setSelected] = useState<BeliefRef | null>(null)
 
@@ -118,12 +112,15 @@ export default function BeliefsView() {
       return next
     })
 
-  const overall = useMemo(() => {
-    const vals = ALL_BELIEFS.map((b) => strengthOf(b.id))
-    const sum = vals.reduce((a, x) => a + x, 0)
-    return Math.round((sum / vals.length) * 10) / 10
+  const catAvgs = useMemo(
+    () =>
+      BELIEF_CATEGORIES.map((cat, ci) =>
+        round2(cat.beliefs.reduce((a, _, bi) => a + strengthOf(`b${ci}-${bi}`), 0) / cat.beliefs.length),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [strengths])
+    [strengths],
+  )
+  const overall = round2(catAvgs.reduce((a, x) => a + x, 0) / catAvgs.length)
 
   const toggleCat = (i: number) =>
     setOpenCats((s) => {
@@ -133,60 +130,104 @@ export default function BeliefsView() {
       return next
     })
 
-  // ─── граф ───
-  const sector = (Math.PI * 2) / BELIEF_CATEGORIES.length
-  const rings = [2, 4, 6, 8, 10]
+  // цвет узла: v1 — радуга по силе (красный→фиолетовый), v2 — цвет категории
+  const nodeColor = (ref: BeliefRef, s: number) =>
+    graphKind === 'v1' ? rainbowColor(s) : ref.category.color
+  const nodeOpacity = (s: number) => (graphKind === 'v1' ? 0.9 : s === 0 ? 0.15 : 0.2 + (s / 12) * 0.8)
 
+  // ─── граф ───
   const renderGraph = () => (
     <section className="rounded-2xl p-2" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
       <svg viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`} preserveAspectRatio="xMidYMid meet" className="w-full h-auto block">
-        {/* кольца силы */}
-        {rings.map((s) => (
-          <g key={s}>
-            <circle
-              cx={CX}
-              cy={CY}
-              r={radiusFor(s)}
-              fill="none"
-              stroke="var(--line)"
-              strokeWidth={1}
-              strokeDasharray="4 4"
-            />
-            <text
-              x={CX + 4}
-              y={CY - radiusFor(s) + 12}
-              style={{ fontSize: 10, fill: 'var(--muted)', fontFamily: 'var(--font-mono)' }}
-            >
-              {s}
-            </text>
-          </g>
-        ))}
-        <circle cx={CX} cy={CY} r={R_MAX} fill="none" stroke="var(--line)" strokeWidth={1} />
-
-        {/* границы секторов и подписи категорий */}
+        {/* линии центр → остров */}
         {BELIEF_CATEGORIES.map((cat, ci) => {
-          const start = -Math.PI / 2 + ci * sector
-          const x = CX + Math.cos(start) * R_MAX
-          const y = CY + Math.sin(start) * R_MAX
-          const mid = start + sector / 2
-          const cos = Math.cos(mid)
-          const sin = Math.sin(mid)
-          const anchor = cos > 0.4 ? 'start' : cos < -0.4 ? 'end' : 'middle'
-          const lr = R_MAX + 6
-          const lx = CX + cos * lr
-          const ly = CY + sin * lr
+          const a = catAngle(ci)
+          const p = polar(a, R_CATEGORY)
+          const color = graphKind === 'v1' ? rainbowColor(catAvgs[ci]) : cat.color
+          return (
+            <line
+              key={`lc-${ci}`}
+              x1={CX}
+              y1={CY}
+              x2={p.x}
+              y2={p.y}
+              stroke={color}
+              strokeWidth={1.5}
+              opacity={0.45}
+            />
+          )
+        })}
+
+        {/* линии остров → убеждение */}
+        {ALL_BELIEFS.map((ref) => {
+          const s = strengthOf(ref.id)
+          const pa = polar(catAngle(ref.catIndex), R_CATEGORY)
+          const pb = polar(beliefAngle(ref), R_BELIEF)
+          return (
+            <line
+              key={`lb-${ref.id}`}
+              x1={pa.x}
+              y1={pa.y}
+              x2={pb.x}
+              y2={pb.y}
+              stroke={nodeColor(ref, s)}
+              strokeWidth={1}
+              opacity={graphKind === 'v1' ? 0.3 : 0.1 + (s / 12) * 0.35}
+            />
+          )
+        })}
+
+        {/* центр — средняя сила */}
+        <circle
+          cx={CX}
+          cy={CY}
+          r={30 + overall * 1.2}
+          fill={graphKind === 'v1' ? rainbowColor(overall) : 'var(--surface-2)'}
+          stroke="var(--bg)"
+          strokeWidth={2}
+          opacity={graphKind === 'v1' ? 0.9 : 1}
+        />
+        <text
+          x={CX}
+          y={CY + 1}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          pointerEvents="none"
+          style={{ fontSize: 18, fontWeight: 700, fill: 'var(--bg)', fontFamily: 'var(--font-mono)' }}
+        >
+          {overall}
+        </text>
+
+        {/* острова-категории */}
+        {BELIEF_CATEGORIES.map((cat, ci) => {
+          const a = catAngle(ci)
+          const p = polar(a, R_CATEGORY)
+          const avg = catAvgs[ci]
+          const r = 14 + avg * 1.3
+          const color = graphKind === 'v1' ? rainbowColor(avg) : cat.color
+          const lines = wrapText(cat.name, 12)
           return (
             <g key={ci}>
-              <line x1={CX} y1={CY} x2={x} y2={y} stroke="var(--line)" strokeWidth={1} opacity={0.6} />
+              <circle cx={p.x} cy={p.y} r={r} fill={color} stroke="var(--bg)" strokeWidth={2} />
               <text
-                x={lx}
-                y={ly}
-                textAnchor={anchor}
+                x={p.x}
+                y={p.y + 1}
+                textAnchor="middle"
                 dominantBaseline="middle"
-                style={{ fontSize: 13, fontWeight: 600, fill: cat.color, fontFamily: 'var(--font-body)', opacity: 0.9 }}
+                pointerEvents="none"
+                style={{ fontSize: 12, fontWeight: 700, fill: 'var(--bg)', fontFamily: 'var(--font-mono)' }}
               >
-                {wrapText(cat.name, 10).map((line, li, arr) => (
-                  <tspan key={li} x={lx} dy={li === 0 ? (arr.length - 1) * -7 : 14}>
+                {avg}
+              </text>
+              <text
+                x={p.x}
+                y={p.y + r + 12}
+                textAnchor="middle"
+                pointerEvents="none"
+                style={{ fontSize: 11, fontWeight: 600, fill: color, fontFamily: 'var(--font-body)' }}
+              >
+                {lines.map((line, li, arr) => (
+                  <tspan key={li} x={p.x} dy={li === 0 ? (arr.length - 1) * -6 : 13}>
                     {line}
                   </tspan>
                 ))}
@@ -195,65 +236,42 @@ export default function BeliefsView() {
           )
         })}
 
-        {/* закрашенные сектора убеждений: от центра (0) до края (10) */}
+        {/* узлы убеждений */}
         {ALL_BELIEFS.map((ref) => {
           const s = strengthOf(ref.id)
-          const [a1, a2] = wedgeAngles(ref)
-          const r = Math.max(radiusFor(s), 10) // минимальный клин для кликабельности
+          const a = beliefAngle(ref)
+          const p = polar(a, R_BELIEF)
+          const r = 5 + s * 1.1
           const isSel = selected?.id === ref.id
+          const color = nodeColor(ref, s)
           return (
-            <path
-              key={ref.id}
-              d={wedgePath(a1, a2, r)}
-              fill={ref.category.color}
-              opacity={s === 0 ? 0.1 : 0.2 + (s / 10) * 0.7}
-              stroke={isSel ? 'var(--light)' : 'var(--bg)'}
-              strokeWidth={isSel ? 2 : 0.5}
-              onClick={() => setSelected(isSel ? null : ref)}
-              style={{ cursor: 'pointer' }}
-            />
-          )
-        })}
-
-        {/* центр — средняя сила */}
-        <circle cx={CX} cy={CY} r={34} fill="var(--surface-2)" stroke="var(--line)" strokeWidth={1.5} pointerEvents="none" />
-        <text
-          x={CX}
-          y={CY + 1}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          pointerEvents="none"
-          style={{ fontSize: 18, fontWeight: 700, fill: 'var(--light)', fontFamily: 'var(--font-mono)' }}
-        >
-          {overall}
-        </text>
-
-        {/* подписи сильных убеждений — за краем круга */}
-        {ALL_BELIEFS.map((ref) => {
-          const s = strengthOf(ref.id)
-          if (s < 6) return null
-          const [a1, a2] = wedgeAngles(ref)
-          const mid = (a1 + a2) / 2
-          const cos = Math.cos(mid)
-          const sin = Math.sin(mid)
-          const anchor = cos > 0.3 ? 'start' : cos < -0.3 ? 'end' : 'middle'
-          const p = polar(mid, R_MAX + 8)
-          return (
-            <text
-              key={`t-${ref.id}`}
-              x={p.x}
-              y={p.y}
-              textAnchor={anchor}
-              dominantBaseline="middle"
-              pointerEvents="none"
-              style={{ fontSize: 10.5, fill: 'var(--muted)', fontFamily: 'var(--font-body)' }}
-            >
-              {wrapText(ref.belief.short, 14).map((line, li, arr) => (
-                <tspan key={li} x={p.x} dy={li === 0 ? (arr.length - 1) * -6 : 12}>
-                  {line}
-                </tspan>
-              ))}
-            </text>
+            <g key={ref.id} onClick={() => setSelected(isSel ? null : ref)} style={{ cursor: 'pointer' }}>
+              <circle cx={p.x} cy={p.y} r={Math.max(r, 13)} fill="transparent" />
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={r}
+                fill={color}
+                opacity={nodeOpacity(s)}
+                stroke={isSel ? 'var(--light)' : 'var(--bg)'}
+                strokeWidth={isSel ? 2 : 1.2}
+              />
+              {s > 0 && (
+                <text
+                  x={p.x}
+                  y={p.y + r + 9}
+                  textAnchor="middle"
+                  pointerEvents="none"
+                  style={{ fontSize: 9.5, fill: 'var(--muted)', fontFamily: 'var(--font-body)' }}
+                >
+                  {wrapText(ref.belief.short, 12).map((line, li, arr) => (
+                    <tspan key={li} x={p.x} dy={li === 0 ? (arr.length - 1) * -5 : 11}>
+                      {line}
+                    </tspan>
+                  ))}
+                </text>
+              )}
+            </g>
           )
         })}
       </svg>
@@ -266,7 +284,7 @@ export default function BeliefsView() {
             <p className="flex-1 min-w-0" style={{ fontSize: 12, color: 'var(--light)' }}>
               {selected.belief.text}
             </p>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: selected.category.color }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: rainbowColor(strengthOf(selected.id)) }}>
               {strengthOf(selected.id)}
             </span>
           </div>
@@ -288,8 +306,6 @@ export default function BeliefsView() {
     <div>
       {BELIEF_CATEGORIES.map((cat, catIndex) => {
         const open = openCats.has(catIndex)
-        const vals = cat.beliefs.map((_, bi) => strengthOf(`b${catIndex}-${bi}`))
-        const avg = Math.round((vals.reduce((a, x) => a + x, 0) / vals.length) * 10) / 10
         return (
           <section
             key={catIndex}
@@ -307,7 +323,7 @@ export default function BeliefsView() {
                 {cat.name}
               </span>
               <span className="flex-none" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: cat.color }}>
-                {avg}
+                {catAvgs[catIndex]}
               </span>
             </button>
             {open &&
@@ -320,12 +336,12 @@ export default function BeliefsView() {
                       <span style={{ fontSize: 12, color: 'var(--text)' }}>{belief.text}</span>
                       <span
                         className="flex-none"
-                        style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: v > 0 ? cat.color : 'var(--muted)' }}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: v > 0 ? rainbowColor(v) : 'var(--muted)' }}
                       >
                         {v}
                       </span>
                     </div>
-                    <StrengthSlider value={v} color={cat.color} aria={belief.text} onChange={(nv) => setStrength(id, nv)} />
+                    <StrengthSlider value={v} color={rainbowColor(v)} aria={belief.text} onChange={(nv) => setStrength(id, nv)} />
                   </div>
                 )
               })}
@@ -360,6 +376,31 @@ export default function BeliefsView() {
           </button>
         ))}
       </div>
+
+      {tab === 'graph' && (
+        <div className="grid grid-cols-2 gap-1 rounded-xl p-1 mb-3" style={{ background: 'var(--surface-2)' }}>
+          {(
+            [
+              { id: 'v1', label: 'Убеждения 1' },
+              { id: 'v2', label: 'Убеждения 2' },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setGraphKind(t.id)}
+              className="rounded-lg py-1 transition-colors"
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                background: graphKind === t.id ? 'var(--active-bg)' : 'transparent',
+                color: graphKind === t.id ? 'var(--accent)' : 'var(--muted)',
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {tab === 'list' ? renderList() : renderGraph()}
     </div>
