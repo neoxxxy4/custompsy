@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { writeLS } from '../lib/sync'
 import {
+  Brain,
   Flower2,
   Heart,
   Home,
@@ -29,6 +30,7 @@ export type MTab =
   | 'progress'
   | 'path'
   | 'social'
+  | 'beliefs'
 
 export interface NavItem {
   id: MTab
@@ -60,6 +62,7 @@ export const TOOL_META: Record<
   progress: { label: 'Прогресс', icon: TrendingUp },
   path: { label: 'Путь', icon: Route },
   social: { label: 'Социум', icon: Users },
+  beliefs: { label: 'Убеждения', icon: Brain },
 }
 
 export const BOTTOM_TAB_META: Record<AppTabId, { label: string; icon: LucideIcon }> = {
@@ -99,6 +102,7 @@ export const DEFAULT_TABS: AppTab[] = [
           { id: 'progress', label: 'Прогресс' },
           { id: 'path', label: 'Путь' },
           { id: 'social', label: 'Социум' },
+          { id: 'beliefs', label: 'Убеждения' },
           { id: 'notes', label: 'Заметки' },
         ],
       },
