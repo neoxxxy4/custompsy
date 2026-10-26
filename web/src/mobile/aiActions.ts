@@ -1,5 +1,5 @@
 import { readLS, writeLS } from '../lib/sync'
-import { seedTodayData, todayKey, uid, type ListRecord, type Note, type TodayData } from '../views/practice/store'
+import { seedDayBlocks, seedTodayData, todayKey, uid, type BlockDef, type BlockItem, type BlockList, type ListRecord, type Note, type TodayData } from '../views/practice/store'
 import { WD } from '../lib/dayStats'
 import { BELIEF_CATEGORIES } from './beliefsData'
 
@@ -18,6 +18,69 @@ const EMO_RU: Record<string, string> = {
   trauma: 'травма', offense: 'обида', shame: 'стыд', guilt: 'вина', fear: 'страх', anger: 'гнев', other: 'другое',
 }
 
+// ─── день: блоки и пункты ───
+
+const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').trim()
+
+function dayState(dateKey: string): { defs: BlockDef[]; data: TodayData; key: string } {
+  const key = `aod4-today-data-${dateKey}`
+  const defs = readLS<BlockDef[] | null>(`aod4-today-blocks-${dateKey}`, null) ?? seedDayBlocks()
+  const data = readLS<TodayData | null>(key, null) ?? seedTodayData(dateKey, WD[new Date().getDay()])
+  return { defs, data, key }
+}
+
+// выбрать блок для новой задачи: по подсказке модели → «задачи/дела» → первый блок с пунктами
+function pickBlock(defs: BlockDef[], hint?: string): BlockDef | null {
+  const usable = defs.filter((d) => d.allow?.items !== false)
+  if (!usable.length) return null
+  if (hint) {
+    const h = norm(hint)
+    const byHint = usable.find((d) => norm(d.title).includes(h) || h.includes(norm(d.title)))
+    if (byHint) return byHint
+  }
+  return usable.find((d) => /задач|дела/.test(norm(d.title))) ?? usable[0]
+}
+
+// найти пункт по фрагменту текста по всем блокам и их спискам (вложенность любая)
+function findItem(data: TodayData, defs: BlockDef[], match: string): { item: BlockItem; blockTitle: string } | null {
+  const m = norm(match)
+  if (!m) return null
+  const walk = (items: BlockItem[], blockTitle: string): { item: BlockItem; blockTitle: string } | null => {
+    const hit = items.find((i) => norm(i.text).includes(m) || m.includes(norm(i.text)))
+    return hit ? { item: hit, blockTitle } : null
+  }
+  const walkLists = (lists: { items: BlockItem[]; lists?: unknown[] }[], blockTitle: string): { item: BlockItem; blockTitle: string } | null => {
+    for (const l of lists) {
+      const hit = walk(l.items, blockTitle) ?? (l.lists ? walkLists(l.lists as typeof lists, blockTitle) : null)
+      if (hit) return hit
+    }
+    return null
+  }
+  for (const def of defs) {
+    const block = data[def.id]
+    if (!block) continue
+    const hit = walk(block.items ?? [], def.title) ?? walkLists(block.lists ?? [], def.title)
+    if (hit) return hit
+  }
+  return null
+}
+
+// перенести пункты из «фантомного» ключа (записанного без блока-определения) в реальный блок
+function mergePhantom(data: TodayData, defs: BlockDef[], targetId: string): TodayData {
+  const defIds = new Set(defs.map((d) => d.id))
+  const phantomKeys = Object.keys(data).filter((k) => !defIds.has(k))
+  if (!phantomKeys.length) return data
+  const next: TodayData = { ...data }
+  const target = { ...(next[targetId] ?? { items: [], lists: [] }) }
+  target.items = [...target.items]
+  for (const k of phantomKeys) {
+    target.items.push(...(next[k]?.items ?? []))
+    delete next[k]
+  }
+  next[targetId] = target
+  return next
+}
+
 interface PsyPerson {
   id: string
   name: string
@@ -32,11 +95,53 @@ function exec(a: any): AiActionResult {
       const text = String(a.text ?? '').trim()
       if (!text) return { ok: false, text: 'задача без текста' }
       const dateKey = todayKey()
-      const key = `aod4-today-data-${dateKey}`
-      const data = readLS<TodayData | null>(key, null) ?? seedTodayData(dateKey, WD[new Date().getDay()])
-      const tasks = data.tasks ?? { items: [], lists: [] }
-      writeLS(key, { ...data, tasks: { ...tasks, items: [...tasks.items, { id: uid(), text, done: false }] } })
-      return { ok: true, text: `задача на сегодня: «${cut(text)}»` }
+      const { defs, data, key } = dayState(dateKey)
+      const block = pickBlock(defs, typeof a.block === 'string' ? a.block : undefined)
+      if (!block) return { ok: false, text: 'в дне нет блока для задач' }
+      const merged = mergePhantom(data, defs, block.id)
+      const cur = merged[block.id] ?? { items: [], lists: [] }
+      writeLS(key, { ...merged, [block.id]: { ...cur, items: [...cur.items, { id: uid(), text, done: false }] } })
+      return { ok: true, text: `задача в «${block.title}»: «${cut(text)}»` }
+    }
+    case 'toggle_task': {
+      const match = String(a.match ?? '').trim()
+      if (!match) return { ok: false, text: 'toggle_task без match' }
+      const dateKey = todayKey()
+      const { defs, data, key } = dayState(dateKey)
+      const hit = findItem(data, defs, match)
+      if (!hit) return { ok: false, text: `пункт «${cut(match, 30)}» не найден в дне` }
+      const done = a.done === undefined ? true : !!a.done
+      hit.item.done = done
+      writeLS(key, data)
+      return { ok: true, text: `${done ? 'выполнено' : 'снова активно'}: «${cut(hit.item.text)}» (${hit.blockTitle})` }
+    }
+    case 'remove_task': {
+      const match = String(a.match ?? '').trim()
+      if (!match) return { ok: false, text: 'remove_task без match' }
+      const dateKey = todayKey()
+      const { defs, data, key } = dayState(dateKey)
+      const hit = findItem(data, defs, match)
+      if (!hit) return { ok: false, text: `пункт «${cut(match, 30)}» не найден в дне` }
+      // удаляем из того массива, где нашли: findItem вернул ссылку на item — чистим по id рекурсивно
+      const strip = (lists: { items: BlockItem[]; lists?: BlockList[] }[]): boolean => {
+        for (const l of lists) {
+          const i = l.items.findIndex((x) => x.id === hit.item.id)
+          if (i >= 0) { l.items.splice(i, 1); return true }
+          if (l.lists && strip(l.lists)) return true
+        }
+        return false
+      }
+      let removed = false
+      for (const def of defs) {
+        const block = data[def.id]
+        if (!block) continue
+        const i = block.items.findIndex((x) => x.id === hit.item.id)
+        if (i >= 0) { block.items.splice(i, 1); removed = true; break }
+        if (strip(block.lists ?? [])) { removed = true; break }
+      }
+      if (!removed) return { ok: false, text: 'не смог удалить пункт' }
+      writeLS(key, data)
+      return { ok: true, text: `удалено: «${cut(hit.item.text)}» (${hit.blockTitle})` }
     }
     case 'add_therapy_note': {
       const text = String(a.text ?? '').trim()
