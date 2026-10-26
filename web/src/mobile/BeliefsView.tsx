@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useLS } from '../views/practice/store'
-import { rainbowColor, round2, wrapText } from './mapLogic'
+import { round2, valueHex, wrapText } from './mapLogic'
 import { ALL_BELIEFS, BELIEF_CATEGORIES, type BeliefRef } from './beliefsData'
 
 // ─── геометрия графа (как в карте самооценки): центр → острова-категории → убеждения ───
@@ -87,7 +87,7 @@ function StrengthSlider({
           height: 18,
           left: `${(value / 12) * 100}%`,
           transform: 'translateX(-50%)',
-          background: value > 0 ? color : 'var(--surface-2)',
+          background: color,
           border: '2px solid var(--surface)',
           boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
         }}
@@ -130,9 +130,12 @@ export default function BeliefsView() {
       return next
     })
 
-  // цвет узла: v1 — радуга по силе (красный→фиолетовый), v2 — цвет категории
+  // цвет силы по делениям карты самооценки, инвертировано: 0 = хорошо (фиолетовый) … 12 = плохо (красный)
+  const strengthColor = (s: number) => valueHex(false, 12 - Math.max(0, Math.min(12, Math.round(s))))
+
+  // цвет узла: v1 — по силе (фиолетовый→красный), v2 — цвет категории
   const nodeColor = (ref: BeliefRef, s: number) =>
-    graphKind === 'v1' ? rainbowColor(s) : ref.category.color
+    graphKind === 'v1' ? strengthColor(s) : ref.category.color
   const nodeOpacity = (s: number) => (graphKind === 'v1' ? 0.9 : s === 0 ? 0.15 : 0.2 + (s / 12) * 0.8)
 
   // ─── граф ───
@@ -143,7 +146,7 @@ export default function BeliefsView() {
         {BELIEF_CATEGORIES.map((cat, ci) => {
           const a = catAngle(ci)
           const p = polar(a, R_CATEGORY)
-          const color = graphKind === 'v1' ? rainbowColor(catAvgs[ci]) : cat.color
+          const color = graphKind === 'v1' ? strengthColor(catAvgs[ci]) : cat.color
           return (
             <line
               key={`lc-${ci}`}
@@ -182,7 +185,7 @@ export default function BeliefsView() {
           cx={CX}
           cy={CY}
           r={30 + overall * 1.2}
-          fill={graphKind === 'v1' ? rainbowColor(overall) : 'var(--surface-2)'}
+          fill={graphKind === 'v1' ? strengthColor(overall) : 'var(--surface-2)'}
           stroke="var(--bg)"
           strokeWidth={2}
           opacity={graphKind === 'v1' ? 0.9 : 1}
@@ -204,7 +207,7 @@ export default function BeliefsView() {
           const p = polar(a, R_CATEGORY)
           const avg = catAvgs[ci]
           const r = 14 + avg * 1.3
-          const color = graphKind === 'v1' ? rainbowColor(avg) : cat.color
+          const color = graphKind === 'v1' ? strengthColor(avg) : cat.color
           const lines = wrapText(cat.name, 12)
           return (
             <g key={ci}>
@@ -284,7 +287,7 @@ export default function BeliefsView() {
             <p className="flex-1 min-w-0" style={{ fontSize: 12, color: 'var(--light)' }}>
               {selected.belief.text}
             </p>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: rainbowColor(strengthOf(selected.id)) }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: strengthColor(strengthOf(selected.id)) }}>
               {strengthOf(selected.id)}
             </span>
           </div>
@@ -336,12 +339,12 @@ export default function BeliefsView() {
                       <span style={{ fontSize: 12, color: 'var(--text)' }}>{belief.text}</span>
                       <span
                         className="flex-none"
-                        style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: v > 0 ? rainbowColor(v) : 'var(--muted)' }}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: strengthColor(v) }}
                       >
                         {v}
                       </span>
                     </div>
-                    <StrengthSlider value={v} color={rainbowColor(v)} aria={belief.text} onChange={(nv) => setStrength(id, nv)} />
+                    <StrengthSlider value={v} color={strengthColor(v)} aria={belief.text} onChange={(nv) => setStrength(id, nv)} />
                   </div>
                 )
               })}
