@@ -8,7 +8,6 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from 'react'
 import {
-  Bot,
   ChevronDown,
   CircleCheck,
   Columns2,
@@ -45,6 +44,7 @@ import {
 } from '../views/practice/store'
 import { WD } from '../lib/dayStats'
 import ProgressRing from './ProgressRing'
+import DayChatBar from './DayChatBar'
 import ChecklistRow from './ChecklistRow'
 import ActionSheet from './ActionSheet'
 import PickListSheet from './PickListSheet'
@@ -769,7 +769,7 @@ export default function TodayView() {
   }
 
   return (
-    <div className="px-4 pt-5 pb-28">
+    <div className="px-4 pt-5 pb-40">
       {/* закреплённая шапка (как в Telegram): полоса недели + сегмент окон
           остаются на месте при прокрутке вниз */}
       <div
@@ -1157,39 +1157,11 @@ export default function TodayView() {
         />
       )}
 
-      {/* FAB ИИ-чата: тап — открыть чат, долгое нажатие — голосовой ввод */}
-      <ChatFab />
+      {/* мини-чат дня внизу экрана */}
+      <DayChatBar />
 
       {toast.node}
     </div>
-  )
-}
-// FAB ИИ-чата: тап — открыть чат, долгое нажатие — чат откроется в режиме голосового ввода
-function ChatFab() {
-  const press = useRef<{ t: number; fired: boolean }>({ t: 0, fired: false })
-  const open = (voice: boolean) =>
-    window.dispatchEvent(new CustomEvent('aod:open-tool', { detail: { tool: 'aichat', voice } }))
-  return (
-    <button
-      className="fixed bottom-24 right-4 z-30 grid place-items-center rounded-full"
-      style={{ width: 52, height: 52, background: 'var(--accent)', color: 'var(--on-fill)', boxShadow: '0 4px 14px rgba(0,0,0,0.45)' }}
-      onPointerDown={() => {
-        press.current.fired = false
-        press.current.t = window.setTimeout(() => {
-          press.current.fired = true
-          open(true)
-        }, 550)
-      }}
-      onPointerUp={() => {
-        window.clearTimeout(press.current.t)
-        if (!press.current.fired) open(false)
-      }}
-      onPointerLeave={() => window.clearTimeout(press.current.t)}
-      onContextMenu={(e) => e.preventDefault()}
-      aria-label="ИИ-чат (удерживайте для голосового ввода)"
-    >
-      <Bot size={24} strokeWidth={1.8} />
-    </button>
   )
 }
 // пункты блока (цели/задачи/события): чекбокс (или время) + текст;

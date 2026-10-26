@@ -1,5 +1,6 @@
 import { readLS, writeLS } from '../lib/sync'
-import { todayKey, uid, type ListRecord, type Note, type Task } from '../views/practice/store'
+import { seedTodayData, todayKey, uid, type ListRecord, type Note, type TodayData } from '../views/practice/store'
+import { WD } from '../lib/dayStats'
 import { BELIEF_CATEGORIES } from './beliefsData'
 
 // действия, которые ИИ вставляет в ответ блоками [ACTION]{json}[/ACTION]
@@ -30,9 +31,11 @@ function exec(a: any): AiActionResult {
     case 'add_task': {
       const text = String(a.text ?? '').trim()
       if (!text) return { ok: false, text: 'задача без текста' }
-      const key = `aod4-tasks-${todayKey()}`
-      const tasks = readLS<Task[]>(key, [])
-      writeLS(key, [...tasks, { id: uid(), text, done: false }])
+      const dateKey = todayKey()
+      const key = `aod4-today-data-${dateKey}`
+      const data = readLS<TodayData | null>(key, null) ?? seedTodayData(dateKey, WD[new Date().getDay()])
+      const tasks = data.tasks ?? { items: [], lists: [] }
+      writeLS(key, { ...data, tasks: { ...tasks, items: [...tasks.items, { id: uid(), text, done: false }] } })
       return { ok: true, text: `задача на сегодня: «${cut(text)}»` }
     }
     case 'add_therapy_note': {
@@ -140,5 +143,7 @@ export function runAiActions(reply: string): { clean: string; results: AiActionR
       })
       .replace(/\n{3,}/g, '\n\n')
       .trim()
+  // перечитываем смонтированные экраны (например «День»), чтобы действия были видны сразу
+  if (results.some((r) => r.ok)) globalThis.window.dispatchEvent(new Event('aod:sync-hydrated'))
   return { clean, results }
 }

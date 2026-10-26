@@ -1,7 +1,8 @@
 import { readLS } from '../lib/sync'
+import { WD } from '../lib/dayStats'
 import { CATEGORIES, isInverseParam, round2 } from './mapLogic'
 import { BELIEF_CATEGORIES } from './beliefsData'
-import { emotionName, todayKey, type Diary, type EmotionTag, type ListRecord, type Note, type Task, type TodayData } from '../views/practice/store'
+import { emotionName, seedDayBlocks, seedTodayData, todayKey, type BlockDef, type Diary, type EmotionTag, type ListRecord, type Note, type Task, type TodayData } from '../views/practice/store'
 
 // компактная сводка данных всех инструментов для ИИ-чата.
 // Цель — дать контекст, а не свалку: топ-N + усечение текстов, лимит на всё ~4000 символов.
@@ -195,4 +196,34 @@ export function buildAiContext(): string {
   if (!sections.length) return ''
   const full = sections.join('\n')
   return full.length > 4000 ? full.slice(0, 4000) + '…' : full
+}
+
+// контекст для чата дня: блоки сегодняшнего дня + путь (своя, узкая сводка)
+export function buildDayContext(): string {
+  const today = todayKey()
+  // если день ещё не редактировали, ключей в LS нет — берём те же дефолты, что видит экран
+  const data = readLS<TodayData | null>(`aod4-today-data-${today}`, null) ?? seedTodayData(today, WD[new Date().getDay()])
+  const defs = readLS<BlockDef[] | null>(`aod4-today-blocks-${today}`, null) ?? seedDayBlocks()
+  const parts: string[] = []
+  if (data) {
+    for (const def of defs) {
+      const block = data[def.id]
+      if (!block) continue
+      const items = block.items ?? []
+      const done = items.filter((i) => i.done).length
+      const undone = items.filter((i) => !i.done).slice(0, 4).map((i) => `«${cut(i.time ? `${i.time} ${i.text}` : i.text, 40)}»`)
+      let line = `${def.title || def.id}: ${done}/${items.length} выполнено`
+      if (undone.length) line += `, осталось: ${undone.join(', ')}`
+      for (const l of block.lists ?? []) {
+        const li = l.items ?? []
+        line += ` | ${l.title || 'список'}: ${li.filter((i) => i.done).length}/${li.length}`
+      }
+      parts.push(line)
+    }
+  }
+  const path = pathSection()
+  if (path) parts.push(path)
+  if (!parts.length) return ''
+  const full = `[День сегодня — что запланировано и что сделано] ${parts.join('. ')}`
+  return full.length > 2500 ? full.slice(0, 2500) + '…' : full
 }

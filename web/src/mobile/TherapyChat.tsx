@@ -3,6 +3,7 @@ import { Mic, MicOff, Send, Trash2 } from 'lucide-react'
 import { uid, useLS } from '../views/practice/store'
 import { buildAiContext } from './aiContext'
 import { runAiActions, type AiActionResult } from './aiActions'
+import { useVoiceInput } from './useVoiceInput'
 
 interface ChatMsg {
   id: string
@@ -24,42 +25,7 @@ export default function TherapyChat() {
   const ctxSections = useMemo(() => (buildAiContext().match(/\[/g) ?? []).length, [messages.length])
 
   // ─── голосовой ввод (Web Speech API) ───
-  const [listening, setListening] = useState(false)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recRef = useRef<any>(null)
-
-  const startVoice = () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SR = (globalThis.window as any).SpeechRecognition ?? (globalThis.window as any).webkitSpeechRecognition
-    if (!SR) {
-      setError('голосовой ввод не поддерживается здесь — открой в Chrome на телефоне')
-      return
-    }
-    if (listening) {
-      recRef.current?.stop()
-      return
-    }
-    const rec = new SR()
-    rec.lang = 'ru-RU'
-    rec.interimResults = true
-    rec.continuous = false
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onresult = (e: any) => {
-      let text = ''
-      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript
-      setDraft(text)
-    }
-    rec.onend = () => setListening(false)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onerror = (e: any) => {
-      setListening(false)
-      setError(`голосовой ввод не сработал (${e?.error ?? 'ошибка'}) — проверь микрофон и интернет`)
-    }
-    recRef.current = rec
-    setListening(true)
-    setError(null)
-    rec.start()
-  }
+  const { listening, startVoice } = useVoiceInput(setDraft, setError)
 
   // вход по долгому нажатию из «Дня» — сразу слушаем
   useEffect(() => {
