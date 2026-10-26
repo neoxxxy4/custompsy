@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
 };
 use rusqlite::{Connection, OptionalExtension};
 
@@ -21,9 +21,10 @@ pub fn router() -> Router<AppState> {
         .route("/balance", get(get_balance).put(put_balance))
         .route("/sync", get(get_sync).put(put_sync))
         .route("/sync/{key}", get(get_sync_key).put(put_sync_key))
+        .route("/ai/chat", post(crate::ai::chat))
 }
 
-pub struct ApiError(StatusCode, String);
+pub struct ApiError(pub StatusCode, pub String);
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {

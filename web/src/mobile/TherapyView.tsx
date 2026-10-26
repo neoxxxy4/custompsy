@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { uid, useLS } from '../views/practice/store'
 import ActionSheet from './ActionSheet'
+import TherapyChat from './TherapyChat'
 
 const CATEGORIES = [
   { id: 'trauma', label: 'Травма', color: '#ef4444' },
@@ -31,6 +32,7 @@ const safeDate = (d?: string | null): string => {
 
 export default function TherapyView() {
   const [notes, setNotes] = useLS<TherapyNote[]>('aod4-therapy-notes', [])
+  const [tab, setTab] = useState<'notes' | 'chat'>('notes')
   const [noteSheet, setNoteSheet] = useState<TherapyNote | null>(null)
   const [draft, setDraft] = useState('')
   const [category, setCategory] = useState<CategoryId>('other')
@@ -64,6 +66,33 @@ export default function TherapyView() {
         Травмирующие ситуации, обиды, стыд, вина и другие темы
       </p>
 
+      <div className="grid grid-cols-2 gap-1 rounded-xl p-1 mt-3 mb-3" style={{ background: 'var(--surface-2)' }}>
+        {(
+          [
+            { id: 'notes', label: 'Записи' },
+            { id: 'chat', label: 'Чат' },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className="rounded-lg py-1.5 transition-colors"
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              background: tab === t.id ? 'var(--accent)' : 'transparent',
+              color: tab === t.id ? 'var(--on-fill)' : 'var(--muted)',
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'chat' && <TherapyChat />}
+
+      {tab === 'notes' && (
+      <>
       <section className="mt-4 rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
         <div className="flex gap-1 overflow-x-auto pb-2 mb-2" style={{ scrollbarWidth: 'none' }}>
           {CATEGORIES.map((c) => (
@@ -130,6 +159,8 @@ export default function TherapyView() {
           </div>
         ))}
       </div>
+      </>
+      )}
 
       {noteSheet && (
         <ActionSheet

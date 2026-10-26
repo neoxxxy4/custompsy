@@ -1,0 +1,129 @@
+import { useEffect, useRef, useState } from 'react'
+import { Send, Trash2 } from 'lucide-react'
+import { uid, useLS } from '../views/practice/store'
+
+interface ChatMsg {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  ts: number
+}
+
+const HISTORY_LIMIT = 14
+
+export default function TherapyChat() {
+  const [messages, setMessages] = useLS<ChatMsg[]>('aod4-therapy-chat', [])
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: 'end' })
+  }, [messages.length, busy])
+
+  const send = async () => {
+    const text = draft.trim()
+    if (!text || busy) return
+    setError(null)
+    const mine: ChatMsg = { id: uid(), role: 'user', content: text, ts: Date.now() }
+    const history = [...messages, mine]
+    setMessages(history)
+    setDraft('')
+    setBusy(true)
+    try {
+      const r = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: history.slice(-HISTORY_LIMIT).map((m) => ({ role: m.role, content: m.content })),
+        }),
+      })
+      const data = await r.json().catch(() => null)
+      if (!r.ok) throw new Error(data?.error ?? `статус ${r.status}`)
+      setMessages((ms) => [...ms, { id: uid(), role: 'assistant', content: String(data.reply ?? '…'), ts: Date.now() }])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'нет связи')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col" style={{ minHeight: '60vh' }}>
+      <p className="mb-2" style={{ fontSize: 11, color: 'var(--muted)' }}>
+        ИИ-помощник (GigaChat). Не заменяет психотерапевта.
+      </p>
+
+      <div className="flex-1 space-y-2">
+        {messages.length === 0 && (
+          <div className="rounded-2xl p-4 text-center" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
+            <p style={{ fontSize: 13, color: 'var(--muted)' }}>
+              Расскажите, что произошло или что чувствуете — помогу разобрать
+            </p>
+          </div>
+        )}
+        {messages.map((m) => (
+          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className="rounded-2xl px-3 py-2"
+              style={{
+                maxWidth: '85%',
+                background: m.role === 'user' ? 'var(--accent)' : 'var(--surface)',
+                color: m.role === 'user' ? 'var(--on-fill)' : 'var(--text)',
+                border: m.role === 'user' ? 'none' : '1px solid var(--line)',
+                fontSize: 13,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {m.content}
+            </div>
+          </div>
+        ))}
+        {busy && (
+          <div className="flex justify-start">
+            <div className="rounded-2xl px-3 py-2" style={{ background: 'var(--surface)', border: '1px solid var(--line)', fontSize: 13, color: 'var(--muted)' }}>
+              печатает…
+            </div>
+          </div>
+        )}
+        {error && (
+          <p className="text-center" style={{ fontSize: 12, color: '#ef4444' }}>
+            Ошибка: {error}
+          </p>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="flex gap-2 mt-3 items-center">
+        {messages.length > 0 && (
+          <button
+            onClick={() => setMessages([])}
+            className="flex-none grid place-items-center rounded-xl"
+            style={{ width: 40, height: 40, background: 'var(--surface)', border: '1px solid var(--line)', color: 'var(--muted)' }}
+            aria-label="Очистить чат"
+          >
+            <Trash2 size={16} strokeWidth={1.8} />
+          </button>
+        )}
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') send() }}
+          placeholder="Написать..."
+          className="flex-1 min-w-0 rounded-xl px-3 outline-none"
+          style={{ height: 40, background: 'var(--surface)', border: '1px solid var(--line)', color: 'var(--light)', fontSize: 13 }}
+        />
+        <button
+          onClick={send}
+          disabled={busy}
+          className="flex-none grid place-items-center rounded-xl"
+          style={{ width: 40, height: 40, background: 'var(--accent)', color: 'var(--on-fill)', opacity: busy ? 0.5 : 1 }}
+          aria-label="Отправить"
+        >
+          <Send size={17} strokeWidth={2} />
+        </button>
+      </div>
+    </div>
+  )
+}

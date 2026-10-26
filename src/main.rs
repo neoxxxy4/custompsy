@@ -1,3 +1,4 @@
+mod ai;
 mod api;
 mod db;
 mod models;
@@ -12,6 +13,7 @@ use tower_http::services::{ServeDir, ServeFile};
 pub struct AppState {
     pub db: api::Db,
     pub clients: ws::WsClients,
+    pub ai: ai::AiState,
 }
 
 async fn no_cache_html(req: axum::extract::Request, next: Next) -> Response {
@@ -37,6 +39,7 @@ async fn main() {
     let state = AppState {
         db: Arc::new(Mutex::new(conn)),
         clients: Arc::new(Mutex::new(Vec::new())),
+        ai: ai::AiState::new(),
     };
 
     let app = Router::new()
