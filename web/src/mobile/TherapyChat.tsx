@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Send, Trash2 } from 'lucide-react'
 import { uid, useLS } from '../views/practice/store'
+import { buildAiContext } from './aiContext'
 
 interface ChatMsg {
   id: string
@@ -37,6 +38,7 @@ export default function TherapyChat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: history.slice(-HISTORY_LIMIT).map((m) => ({ role: m.role, content: m.content })),
+          context: buildAiContext(),
         }),
       })
       const data = await r.json().catch(() => null)
@@ -52,7 +54,7 @@ export default function TherapyChat() {
   return (
     <div className="flex flex-col" style={{ minHeight: '60vh' }}>
       <p className="mb-2" style={{ fontSize: 11, color: 'var(--muted)' }}>
-        ИИ-помощник (GigaChat). Не заменяет психотерапевта.
+        ИИ-помощник (GigaChat) видит данные твоих инструментов. Не заменяет психотерапевта.
       </p>
 
       <div className="flex-1 space-y-2">

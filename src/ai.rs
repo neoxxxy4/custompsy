@@ -96,6 +96,7 @@ pub struct ChatMessage {
 #[derive(Deserialize)]
 pub struct ChatRequest {
     messages: Vec<ChatMessage>,
+    context: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -115,6 +116,15 @@ pub async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -
     }
 
     let mut messages = vec![serde_json::json!({ "role": "system", "content": SYSTEM_PROMPT })];
+    if let Some(ctx) = req.context {
+        let ctx: String = ctx.chars().take(8000).collect();
+        if !ctx.trim().is_empty() {
+            messages.push(serde_json::json!({
+                "role": "system",
+                "content": format!("Данные пользователя из его приложения (используй как контекст для ответов, не пересказывай целиком):\n{ctx}"),
+            }));
+        }
+    }
     for m in &clean {
         let content: String = m.content.chars().take(MAX_CONTENT).collect();
         messages.push(serde_json::json!({ "role": m.role, "content": content }));
