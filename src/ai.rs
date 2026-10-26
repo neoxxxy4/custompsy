@@ -120,7 +120,7 @@ pub async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -
 
     let mut system = SYSTEM_PROMPT.to_string();
     let ctx_len = req.context.as_deref().map(|c| c.len()).unwrap_or(0);
-    println!("ai/chat: messages={}, context={} байт", req.messages.len(), ctx_len);
+    println!("ai/chat: messages={}, context={} байт", clean.len(), ctx_len);
     if let Some(ctx) = req.context {
         let ctx: String = ctx.chars().take(8000).collect();
         if !ctx.trim().is_empty() {
