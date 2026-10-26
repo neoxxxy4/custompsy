@@ -229,6 +229,6 @@ export function buildDayContext(): string {
   const path = pathSection()
   if (path) parts.push(path)
   if (!parts.length) return ''
-  const full = `[День сегодня — что запланировано и что сделано] ${parts.join('. ')}`
+  const full = `[Данные дня — блоки и пункты] ${parts.join('. ')}`
   return full.length > 2500 ? full.slice(0, 2500) + '…' : full
 }

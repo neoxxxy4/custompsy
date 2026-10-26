@@ -14,6 +14,14 @@ const SYSTEM_PROMPT: &str = "Ты — поддерживающий психол�
 ты их видишь. Если пользователь спрашивает, видишь ли ты его данные, — отвечай «да» и кратко перечисли, \
 что именно видишь. Если блока с данными нет — честно скажи, что данных нет.";
 
+// режим чата дня: исполнитель команд, а не собеседник
+const DAY_PROMPT: &str = "Ты — ассистент-исполнитель в разделе «День» приложения-планировщика. \
+Пользователь отдаёт короткие команды про задачи и блоки. Твоя работа — понять команду и вставить блок [ACTION]. \
+Отвечай по-русски, очень коротко (1–2 предложения), по делу, без рассуждений и не начинай со слова «да». \
+В данных дня блоки перечислены по названиям; «Данные дня» — это заголовок секции, а не название блока, \
+никогда не используй его как название блока. Если команда неоднозначна — задай один короткий уточняющий вопрос. \
+Если команда не про действия в дне — ответь как обычный помощник.";
+
 const ACTIONS_SPEC: &str = "Ты можешь ВЫПОЛНЯТЬ ДЕЙСТВИЯ в приложении пользователя, когда он явно просит \
 («добавь», «запиши», «отметь», «вычеркни», «удали», «создай», «поставь», «очисти»). Формат — отдельный блок в ответе:\n\
 [ACTION]{\"type\":\"...\",...}[/ACTION]\n\
@@ -86,6 +94,7 @@ pub struct ChatMessage {
 pub struct ChatRequest {
     messages: Vec<ChatMessage>,
     context: Option<String>,
+    mode: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -104,7 +113,13 @@ pub async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -
         return Err(ApiError(StatusCode::BAD_REQUEST, "пустой запрос".into()));
     }
 
-    let mut system = format!("{SYSTEM_PROMPT}\n\n{ACTIONS_SPEC}").to_string();
+    let is_day = req.mode.as_deref() == Some("day");
+    let mut system = if is_day {
+        format!("{DAY_PROMPT}\n\n{ACTIONS_SPEC}")
+    } else {
+        format!("{SYSTEM_PROMPT}\n\n{ACTIONS_SPEC}")
+    };
+    let temperature = if is_day { 0.2 } else { 0.7 };
     let ctx_len = req.context.as_deref().map(|c| c.len()).unwrap_or(0);
     let last_user: String = clean.last().map(|m| m.content.chars().take(150).collect()).unwrap_or_default();
     println!("ai/chat: messages={}, context={} байт, вопрос: {}", clean.len(), ctx_len, last_user);
@@ -129,7 +144,7 @@ pub async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -
         .header("Authorization", format!("Api-Key {key}"))
         .json(&serde_json::json!({
             "modelUri": format!("gpt://{}/{}", state.ai.folder_id, state.ai.model),
-            "completionOptions": { "stream": false, "temperature": 0.7, "maxTokens": "800" },
+            "completionOptions": { "stream": false, "temperature": temperature, "maxTokens": "800" },
             "messages": messages,
         }))
         .send()

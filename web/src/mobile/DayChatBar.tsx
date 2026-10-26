@@ -48,6 +48,7 @@ export default function DayChatBar() {
         body: JSON.stringify({
           messages: history.slice(-HISTORY_LIMIT).map((m) => ({ role: m.role, content: m.content })),
           context: buildDayContext(),
+          mode: 'day',
         }),
       })
       const data = await r.json().catch(() => null)
