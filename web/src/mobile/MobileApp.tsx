@@ -10,6 +10,7 @@ import TherapyView from './TherapyView'
 import SessionView from './SessionView'
 import ChatView from './ChatView'
 import SocialView from './SocialView'
+import PsySocialView from './PsySocialView'
 import BeliefsView from './BeliefsView'
 import RecordsView from './RecordsView'
 import DashboardView from './DashboardView'
@@ -84,6 +85,8 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         return <PathView />
       case 'social':
         return <SocialView />
+      case 'psysoc':
+        return <PsySocialView />
       case 'beliefs':
         return <BeliefsView />
       default:

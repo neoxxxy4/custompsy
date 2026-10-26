@@ -52,6 +52,7 @@ const DEFAULT_TOOL_CONFIGS: Record<MTab, ToolConfig> = {
   progress: { mode: 'both' },
   path: { mode: 'both' },
   social: { mode: 'both' },
+  psysoc: { mode: 'both' },
   beliefs: { mode: 'both' },
 }
 

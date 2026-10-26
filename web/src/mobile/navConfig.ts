@@ -4,6 +4,7 @@ import {
   Brain,
   Flower2,
   Heart,
+  HeartHandshake,
   Home,
   LayoutDashboard,
   LayoutGrid,
@@ -30,6 +31,7 @@ export type MTab =
   | 'progress'
   | 'path'
   | 'social'
+  | 'psysoc'
   | 'beliefs'
 
 export interface NavItem {
@@ -61,7 +63,8 @@ export const TOOL_META: Record<
   map: { label: 'Самооценка', icon: MapIcon },
   progress: { label: 'Прогресс', icon: TrendingUp },
   path: { label: 'Путь', icon: Route },
-  social: { label: 'Социум', icon: Users },
+  social: { label: 'Социум IQ', icon: Users },
+  psysoc: { label: 'Социум', icon: HeartHandshake },
   beliefs: { label: 'Убеждения', icon: Brain },
 }
 
@@ -101,7 +104,8 @@ export const DEFAULT_TABS: AppTab[] = [
           { id: 'therapy', label: 'Терапия' },
           { id: 'progress', label: 'Прогресс' },
           { id: 'path', label: 'Путь' },
-          { id: 'social', label: 'Социум' },
+          { id: 'psysoc', label: 'Социум' },
+          { id: 'social', label: 'Социум IQ' },
           { id: 'beliefs', label: 'Убеждения' },
           { id: 'notes', label: 'Заметки' },
         ],
