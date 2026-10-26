@@ -53,6 +53,7 @@ const DEFAULT_TOOL_CONFIGS: Record<MTab, ToolConfig> = {
   path: { mode: 'both' },
   social: { mode: 'both' },
   psysoc: { mode: 'both' },
+  aichat: { mode: 'both' },
   beliefs: { mode: 'both' },
 }
 

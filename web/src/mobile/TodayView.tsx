@@ -8,6 +8,7 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from 'react'
 import {
+  Bot,
   ChevronDown,
   CircleCheck,
   Columns2,
@@ -1156,8 +1157,39 @@ export default function TodayView() {
         />
       )}
 
+      {/* FAB ИИ-чата: тап — открыть чат, долгое нажатие — голосовой ввод */}
+      <ChatFab />
+
       {toast.node}
     </div>
+  )
+}
+// FAB ИИ-чата: тап — открыть чат, долгое нажатие — чат откроется в режиме голосового ввода
+function ChatFab() {
+  const press = useRef<{ t: number; fired: boolean }>({ t: 0, fired: false })
+  const open = (voice: boolean) =>
+    window.dispatchEvent(new CustomEvent('aod:open-tool', { detail: { tool: 'aichat', voice } }))
+  return (
+    <button
+      className="fixed bottom-24 right-4 z-30 grid place-items-center rounded-full"
+      style={{ width: 52, height: 52, background: 'var(--accent)', color: 'var(--on-fill)', boxShadow: '0 4px 14px rgba(0,0,0,0.45)' }}
+      onPointerDown={() => {
+        press.current.fired = false
+        press.current.t = window.setTimeout(() => {
+          press.current.fired = true
+          open(true)
+        }, 550)
+      }}
+      onPointerUp={() => {
+        window.clearTimeout(press.current.t)
+        if (!press.current.fired) open(false)
+      }}
+      onPointerLeave={() => window.clearTimeout(press.current.t)}
+      onContextMenu={(e) => e.preventDefault()}
+      aria-label="ИИ-чат (удерживайте для голосового ввода)"
+    >
+      <Bot size={24} strokeWidth={1.8} />
+    </button>
   )
 }
 // пункты блока (цели/задачи/события): чекбокс (или время) + текст;

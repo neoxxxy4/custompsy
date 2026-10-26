@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Send, Trash2 } from 'lucide-react'
+import { Mic, MicOff, Send, Trash2 } from 'lucide-react'
 import { uid, useLS } from '../views/practice/store'
 import { buildAiContext } from './aiContext'
 import { runAiActions, type AiActionResult } from './aiActions'
@@ -22,6 +22,53 @@ export default function TherapyChat() {
   const bottomRef = useRef<HTMLDivElement>(null)
   // сколько разделов данных сейчас уйдёт вместе с сообщением
   const ctxSections = useMemo(() => (buildAiContext().match(/\[/g) ?? []).length, [messages.length])
+
+  // ─── голосовой ввод (Web Speech API) ───
+  const [listening, setListening] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recRef = useRef<any>(null)
+
+  const startVoice = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (globalThis.window as any).SpeechRecognition ?? (globalThis.window as any).webkitSpeechRecognition
+    if (!SR) {
+      setError('голосовой ввод не поддерживается здесь — открой в Chrome на телефоне')
+      return
+    }
+    if (listening) {
+      recRef.current?.stop()
+      return
+    }
+    const rec = new SR()
+    rec.lang = 'ru-RU'
+    rec.interimResults = true
+    rec.continuous = false
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
+      let text = ''
+      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript
+      setDraft(text)
+    }
+    rec.onend = () => setListening(false)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onerror = (e: any) => {
+      setListening(false)
+      setError(`голосовой ввод не сработал (${e?.error ?? 'ошибка'}) — проверь микрофон и интернет`)
+    }
+    recRef.current = rec
+    setListening(true)
+    setError(null)
+    rec.start()
+  }
+
+  // вход по долгому нажатию из «Дня» — сразу слушаем
+  useEffect(() => {
+    if (globalThis.window.sessionStorage.getItem('aod-aichat-voice') === '1') {
+      globalThis.window.sessionStorage.removeItem('aod-aichat-voice')
+      startVoice()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
@@ -135,10 +182,24 @@ export default function TherapyChat() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') send() }}
-          placeholder="Написать..."
+          placeholder={listening ? 'Говорите…' : 'Написать...'}
           className="flex-1 min-w-0 rounded-xl px-3 outline-none"
-          style={{ height: 40, background: 'var(--surface)', border: '1px solid var(--line)', color: 'var(--light)', fontSize: 13 }}
+          style={{ height: 40, background: 'var(--surface)', border: `1px solid ${listening ? '#ef4444' : 'var(--line)'}`, color: 'var(--light)', fontSize: 13 }}
         />
+        <button
+          onClick={startVoice}
+          className="flex-none grid place-items-center rounded-xl"
+          style={{
+            width: 40,
+            height: 40,
+            background: listening ? '#ef4444' : 'var(--surface)',
+            border: '1px solid var(--line)',
+            color: listening ? '#fff' : 'var(--muted)',
+          }}
+          aria-label="Голосовой ввод"
+        >
+          {listening ? <MicOff size={17} strokeWidth={2} /> : <Mic size={17} strokeWidth={2} />}
+        </button>
         <button
           onClick={send}
           disabled={busy}

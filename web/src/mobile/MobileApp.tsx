@@ -12,6 +12,7 @@ import ChatView from './ChatView'
 import SocialView from './SocialView'
 import PsySocialView from './PsySocialView'
 import BeliefsView from './BeliefsView'
+import AiChatView from './AiChatView'
 import RecordsView from './RecordsView'
 import DashboardView from './DashboardView'
 import TabShell from './TabShell'
@@ -59,13 +60,22 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
       const id = (e as CustomEvent<{ tab: BottomTabId }>).detail?.tab
       if (id) switchTab(id)
     }
+    const onOpenTool = (e: Event) => {
+      const d = (e as CustomEvent<{ tool: MTab; voice?: boolean }>).detail
+      if (d?.tool && validToolIds.has(d.tool)) {
+        if (d.voice) globalThis.window.sessionStorage.setItem('aod-aichat-voice', '1')
+        openTool(d.tool)
+      }
+    }
     globalThis.window.addEventListener('popstate', onPopState)
     document.addEventListener('backbutton', onBackButton)
     globalThis.window.addEventListener('aod:switch-tab', onSwitchTab)
+    globalThis.window.addEventListener('aod:open-tool', onOpenTool)
     return () => {
       globalThis.window.removeEventListener('popstate', onPopState)
       document.removeEventListener('backbutton', onBackButton)
       globalThis.window.removeEventListener('aod:switch-tab', onSwitchTab)
+      globalThis.window.removeEventListener('aod:open-tool', onOpenTool)
     }
   }, [activeTool, switchTab])
 
@@ -89,6 +99,8 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         return <PsySocialView />
       case 'beliefs':
         return <BeliefsView />
+      case 'aichat':
+        return <AiChatView />
       default:
         return null
     }

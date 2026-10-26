@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { writeLS } from '../lib/sync'
 import {
+  Bot,
   Brain,
   Flower2,
   Heart,
@@ -33,6 +34,7 @@ export type MTab =
   | 'social'
   | 'psysoc'
   | 'beliefs'
+  | 'aichat'
 
 export interface NavItem {
   id: MTab
@@ -66,6 +68,7 @@ export const TOOL_META: Record<
   social: { label: 'Социум IQ', icon: Users },
   psysoc: { label: 'Социум', icon: HeartHandshake },
   beliefs: { label: 'Убеждения', icon: Brain },
+  aichat: { label: 'ИИ-чат', icon: Bot },
 }
 
 export const BOTTOM_TAB_META: Record<AppTabId, { label: string; icon: LucideIcon }> = {
@@ -102,6 +105,7 @@ export const DEFAULT_TABS: AppTab[] = [
           { id: 'map', label: 'Самооценка' },
           { id: 'emotions', label: 'Эмоции' },
           { id: 'therapy', label: 'Терапия' },
+          { id: 'aichat', label: 'ИИ-чат' },
           { id: 'progress', label: 'Прогресс' },
           { id: 'path', label: 'Путь' },
           { id: 'psysoc', label: 'Социум' },
