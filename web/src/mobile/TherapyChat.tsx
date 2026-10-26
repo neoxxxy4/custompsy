@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Send, Trash2 } from 'lucide-react'
 import { uid, useLS } from '../views/practice/store'
 import { buildAiContext } from './aiContext'
@@ -18,6 +18,8 @@ export default function TherapyChat() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  // сколько разделов данных сейчас уйдёт вместе с сообщением
+  const ctxSections = useMemo(() => (buildAiContext().match(/\[/g) ?? []).length, [messages.length])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
@@ -55,6 +57,12 @@ export default function TherapyChat() {
     <div className="flex flex-col" style={{ minHeight: '60vh' }}>
       <p className="mb-2" style={{ fontSize: 11, color: 'var(--muted)' }}>
         ИИ-помощник (GigaChat) видит данные твоих инструментов. Не заменяет психотерапевта.
+        <br />
+        {ctxSections > 0 ? (
+          <span style={{ color: 'var(--accent)' }}>Данные подключены: разделов {ctxSections}</span>
+        ) : (
+          <span>Данных в инструментах пока нет — чат без контекста</span>
+        )}
       </p>
 
       <div className="flex-1 space-y-2">
