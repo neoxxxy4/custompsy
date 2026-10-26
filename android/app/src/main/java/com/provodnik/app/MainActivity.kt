@@ -29,6 +29,26 @@ import kotlin.concurrent.thread
 class MainActivity : Activity() {
 
     private lateinit var webView: WebView
+    private var pendingPermissionRequest: android.webkit.PermissionRequest? = null
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_RECORD_AUDIO) {
+            val req = pendingPermissionRequest
+            pendingPermissionRequest = null
+            if (req != null) {
+                if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                    req.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                } else {
+                    req.deny()
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val REQ_RECORD_AUDIO = 42
+    }
 
     private val isOfflineMode: Boolean
         get() = BuildConfig.FLAVOR == "offline"
@@ -78,6 +98,26 @@ class MainActivity : Activity() {
                 Log.d("ProvodnikJS", "${message.message()} -- ${message.sourceId()}:${message.lineNumber()}")
                 return true
             }
+
+            // getUserMedia (голосовой ввод) из WebView: выдаём аудио, если у приложения есть RECORD_AUDIO
+            override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
+                val granted = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                val wantsAudio = request.resources.contains(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                if (granted && wantsAudio) {
+                    request.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                } else if (wantsAudio) {
+                    // прав ещё нет — запоминаем запрос и спрашиваем у пользователя
+                    pendingPermissionRequest = request
+                    requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), REQ_RECORD_AUDIO)
+                } else {
+                    request.deny()
+                }
+            }
+        }
+
+        // спросим доступ к микрофону заранее, чтобы голосовой ввод не спотыкался
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), REQ_RECORD_AUDIO)
         }
 
         setContentView(webView)

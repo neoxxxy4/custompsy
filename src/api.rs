@@ -22,6 +22,10 @@ pub fn router() -> Router<AppState> {
         .route("/sync", get(get_sync).put(put_sync))
         .route("/sync/{key}", get(get_sync_key).put(put_sync_key))
         .route("/ai/chat", post(crate::ai::chat))
+        .route(
+            "/stt",
+            post(crate::ai::stt).layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024)),
+        )
 }
 
 pub struct ApiError(pub StatusCode, pub String);

@@ -1,6 +1,4 @@
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
+use axum::body::Bytes;
 use axum::{Json, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
 
@@ -46,77 +44,35 @@ const ACTIONS_SPEC: &str = "Ты можешь ВЫПОЛНЯТЬ ДЕЙСТВИ�
 если просьбу нельзя выполнить этими действиями, честно скажи «этого я пока не умею» и кратко перечисли, что умеешь; \
 после блока одним предложением подтверди, что сделал. Не начинай ответ со слова «да».";
 
-const TOKEN_TTL: Duration = Duration::from_secs(25 * 60);
 const MAX_MESSAGES: usize = 30;
 const MAX_CONTENT: usize = 4000;
-
-struct CachedToken {
-    value: String,
-    at: Instant,
-}
+const MAX_AUDIO: usize = 10 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AiState {
     client: reqwest::Client,
-    auth_key: Option<String>,
-    token: Arc<Mutex<Option<CachedToken>>>,
+    api_key: Option<String>,
+    folder_id: String,
+    model: String,
 }
 
 impl AiState {
     pub fn new() -> Self {
-        let client = reqwest::Client::builder()
-            // у endpoint'ов Сбера российский TLS-сертификат Минцифры
-            .danger_accept_invalid_certs(true)
-            .timeout(Duration::from_secs(45))
-            .build()
-            .expect("reqwest client");
         Self {
-            client,
-            auth_key: std::env::var("GIGACHAT_AUTH_KEY").ok(),
-            token: Arc::new(Mutex::new(None)),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .expect("reqwest client"),
+            api_key: std::env::var("YC_API_KEY").ok(),
+            folder_id: std::env::var("YC_FOLDER_ID").unwrap_or_else(|_| "b1gbjjd4gdnuhslajjkt".into()),
+            model: std::env::var("YC_MODEL").unwrap_or_else(|_| "yandexgpt-lite".into()),
         }
     }
 
-    async fn access_token(&self) -> Result<String, ApiError> {
-        {
-            let guard = self.token.lock().unwrap();
-            if let Some(t) = guard.as_ref() {
-                if t.at.elapsed() < TOKEN_TTL {
-                    return Ok(t.value.clone());
-                }
-            }
-        }
-        let key = self
-            .auth_key
-            .as_ref()
-            .ok_or_else(|| ApiError(StatusCode::SERVICE_UNAVAILABLE, "ИИ не настроен на сервере".into()))?;
-        let rquid = {
-            let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-            format!("{:08x}-{:04x}-{:04x}-{:04x}-{:012x}", n as u32, (n >> 32) as u16, (n >> 48) as u16, (n >> 64) as u16, (n >> 80) as u64 & 0xffffffffffff)
-        };
-        let res = self
-            .client
-            .post("https://ngw.devices.sberbank.ru:9443/api/v2/oauth")
-            .header("Authorization", format!("Basic {key}"))
-            .header("RqUID", rquid)
-            .header("Accept", "application/json")
-            .form(&[("scope", "GIGACHAT_API_PERS")])
-            .send()
-            .await
-            .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, format!("oauth: {e}")))?;
-        if !res.status().is_success() {
-            return Err(ApiError(StatusCode::BAD_GATEWAY, format!("oauth: статус {}", res.status())));
-        }
-        let body: serde_json::Value = res
-            .json()
-            .await
-            .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, format!("oauth: {e}")))?;
-        let token = body["access_token"]
-            .as_str()
-            .ok_or_else(|| ApiError(StatusCode::BAD_GATEWAY, "oauth: нет access_token".into()))?
-            .to_string();
-        *self.token.lock().unwrap() = Some(CachedToken { value: token.clone(), at: Instant::now() });
-        Ok(token)
+    fn key(&self) -> Result<&str, ApiError> {
+        self.api_key
+            .as_deref()
+            .ok_or_else(|| ApiError(StatusCode::SERVICE_UNAVAILABLE, "ИИ не настроен на сервере".into()))
     }
 }
 
@@ -159,41 +115,95 @@ pub async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -
             system.push_str(&ctx);
         }
     }
-    let mut messages = vec![serde_json::json!({ "role": "system", "content": system })];
+    let mut messages = vec![serde_json::json!({ "role": "system", "text": system })];
     for m in &clean {
         let content: String = m.content.chars().take(MAX_CONTENT).collect();
-        messages.push(serde_json::json!({ "role": m.role, "content": content }));
+        messages.push(serde_json::json!({ "role": m.role, "text": content }));
     }
 
-    let token = state.ai.access_token().await?;
+    let key = state.ai.key()?;
     let res = state
         .ai
         .client
-        .post("https://gigachat.devices.sberbank.ru/api/v1/chat/completions")
-        .bearer_auth(token)
+        .post("https://llm.api.cloud.yandex.net/foundationModels/v1/completion")
+        .header("Authorization", format!("Api-Key {key}"))
         .json(&serde_json::json!({
-            "model": "GigaChat",
+            "modelUri": format!("gpt://{}/{}", state.ai.folder_id, state.ai.model),
+            "completionOptions": { "stream": false, "temperature": 0.7, "maxTokens": "800" },
             "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 800,
         }))
         .send()
         .await
-        .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, format!("gigachat: {e}")))?;
+        .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, format!("yandexgpt: {e}")))?;
     if !res.status().is_success() {
         let status = res.status();
         let text = res.text().await.unwrap_or_default();
-        println!("ai/chat ошибка: gigachat {status} {}", &text[..text.len().min(300)]);
-        return Err(ApiError(StatusCode::BAD_GATEWAY, format!("gigachat: {status} {}", &text[..text.len().min(200)])));
+        println!("ai/chat ошибка: yandexgpt {status} {}", &text[..text.len().min(300)]);
+        return Err(ApiError(StatusCode::BAD_GATEWAY, format!("yandexgpt: {status} {}", &text[..text.len().min(200)])));
     }
     let body: serde_json::Value = res
         .json()
         .await
-        .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, format!("gigachat: {e}")))?;
-    let reply = body["choices"][0]["message"]["content"]
+        .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, format!("yandexgpt: {e}")))?;
+    let reply = body["result"]["alternatives"][0]["message"]["text"]
         .as_str()
         .unwrap_or("…")
         .to_string();
     println!("ai/chat ответ: {}", reply.chars().take(400).collect::<String>());
     Ok(Json(ChatResponse { reply }))
+}
+
+#[derive(Serialize)]
+pub struct SttResponse {
+    text: String,
+}
+
+// голос → текст через Yandex SpeechKit: тело — аудиофайл (webm/ogg opus), Content-Type подсказывает формат
+pub async fn stt(State(state): State<AppState>, headers: axum::http::HeaderMap, body: Bytes) -> Result<Json<SttResponse>, ApiError> {
+    if body.is_empty() {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "пустое аудио".into()));
+    }
+    if body.len() > MAX_AUDIO {
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "аудио слишком длинное".into()));
+    }
+    let ct = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let format = if ct.contains("webm") {
+        "webmopus"
+    } else if ct.contains("mpeg") || ct.contains("mp3") {
+        "mp3"
+    } else if ct.contains("lpcm") || ct.contains("L16") {
+        "lpcm"
+    } else {
+        "oggopus"
+    };
+    let key = state.ai.key()?.to_string();
+    let folder = state.ai.folder_id.clone();
+    let res = state
+        .ai
+        .client
+        .post(format!(
+            "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize?folderId={folder}&lang=ru-RU&format={format}"
+        ))
+        .header("Authorization", format!("Api-Key {key}"))
+        .header("Content-Type", "application/octet-stream")
+        .body(body.to_vec())
+        .send()
+        .await
+        .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, format!("speechkit: {e}")))?;
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        println!("stt ошибка: speechkit {status} {}", &text[..text.len().min(300)]);
+        return Err(ApiError(StatusCode::BAD_GATEWAY, format!("speechkit: {status}")));
+    }
+    let body: serde_json::Value = res
+        .json()
+        .await
+        .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, format!("speechkit: {e}")))?;
+    let text = body["result"].as_str().unwrap_or("").to_string();
+    println!("stt: распознано {} симв", text.chars().count());
+    Ok(Json(SttResponse { text }))
 }
