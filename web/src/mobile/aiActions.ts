@@ -1,5 +1,5 @@
 import { readLS, writeLS } from '../lib/sync'
-import { seedDayBlocks, seedTodayData, todayKey, uid, type BlockDef, type BlockItem, type BlockList, type ListRecord, type Note, type TodayData } from '../views/practice/store'
+import { seedDayBlocks, seedTodayData, todayKey, uid, FULL_ALLOW, cloneTemplateItems, cloneTemplateList, type BlockDef, type BlockItem, type BlockList, type BlockTemplate, type ListRecord, type Note, type TodayData } from '../views/practice/store'
 import { WD } from '../lib/dayStats'
 import { BELIEF_CATEGORIES } from './beliefsData'
 
@@ -29,40 +29,67 @@ function dayState(dateKey: string): { defs: BlockDef[]; data: TodayData; key: st
   return { defs, data, key }
 }
 
+const blockTitle = (d: BlockDef) => d.title.trim() || 'без названия'
+
 // выбрать блок для новой задачи: по подсказке модели → «задачи/дела» → первый блок с пунктами
 function pickBlock(defs: BlockDef[], hint?: string): BlockDef | null {
   const usable = defs.filter((d) => d.allow?.items !== false)
   if (!usable.length) return null
   if (hint) {
     const h = norm(hint)
-    const byHint = usable.find((d) => norm(d.title).includes(h) || h.includes(norm(d.title)))
-    if (byHint) return byHint
+    if (h) {
+      const byHint = usable.find((d) => {
+        const t = norm(d.title)
+        return t.length > 0 && (t.includes(h) || h.includes(t))
+      })
+      if (byHint) return byHint
+    }
   }
   return usable.find((d) => /задач|дела/.test(norm(d.title))) ?? usable[0]
 }
 
-// найти пункт по фрагменту текста по всем блокам и их спискам (вложенность любая)
-function findItem(data: TodayData, defs: BlockDef[], match: string): { item: BlockItem; blockTitle: string } | null {
+// блок по фрагменту названия (пустые названия не участвуют — иначе матчат всё)
+function findBlock(defs: BlockDef[], match: string): BlockDef | null {
   const m = norm(match)
   if (!m) return null
-  const walk = (items: BlockItem[], blockTitle: string): { item: BlockItem; blockTitle: string } | null => {
-    const hit = items.find((i) => norm(i.text).includes(m) || m.includes(norm(i.text)))
-    return hit ? { item: hit, blockTitle } : null
+  return (
+    defs.find((d) => norm(d.title) === m) ??
+    defs.find((d) => { const t = norm(d.title); return t.length > 0 && t.includes(m) }) ??
+    defs.find((d) => { const t = norm(d.title); return t.length > 0 && m.includes(t) }) ??
+    null
+  )
+}
+
+// найти пункт по фрагменту текста по всем блокам и их спискам (вложенность любая).
+// скоринг: точное совпадение > вхождение; короткие строки матчатся только точно,
+// чтобы «дело 1» не цеплялось за пункт «1»
+function findItem(data: TodayData, defs: BlockDef[], match: string, blockHint?: string): { item: BlockItem; blockTitle: string } | null {
+  const m = norm(match)
+  if (!m) return null
+  const scopeBlock = blockHint ? findBlock(defs, blockHint) : null
+  const scope = scopeBlock ? [scopeBlock] : defs
+  let best: { item: BlockItem; blockTitle: string; score: number } | null = null
+  const consider = (it: BlockItem, title: string) => {
+    const t = norm(it.text)
+    let score = 0
+    if (t === m) score = 4
+    else if (m.length >= 3 && t.includes(m)) score = 3
+    else if (m.length >= 3 && t.length >= 3 && m.includes(t)) score = 2
+    if (score > 0 && (!best || score > best.score)) best = { item: it, blockTitle: title, score }
   }
-  const walkLists = (lists: { items: BlockItem[]; lists?: unknown[] }[], blockTitle: string): { item: BlockItem; blockTitle: string } | null => {
+  const walkLists = (lists: BlockList[], title: string) => {
     for (const l of lists) {
-      const hit = walk(l.items, blockTitle) ?? (l.lists ? walkLists(l.lists as typeof lists, blockTitle) : null)
-      if (hit) return hit
+      for (const it of l.items) consider(it, title)
+      if (l.lists) walkLists(l.lists, title)
     }
-    return null
   }
-  for (const def of defs) {
+  for (const def of scope) {
     const block = data[def.id]
     if (!block) continue
-    const hit = walk(block.items ?? [], def.title) ?? walkLists(block.lists ?? [], def.title)
-    if (hit) return hit
+    for (const it of block.items ?? []) consider(it, def.title)
+    walkLists(block.lists ?? [], def.title)
   }
-  return null
+  return best ? { item: best.item, blockTitle: best.blockTitle } : null
 }
 
 // перенести пункты из «фантомного» ключа (записанного без блока-определения) в реальный блок
@@ -101,26 +128,26 @@ function exec(a: any): AiActionResult {
       const merged = mergePhantom(data, defs, block.id)
       const cur = merged[block.id] ?? { items: [], lists: [] }
       writeLS(key, { ...merged, [block.id]: { ...cur, items: [...cur.items, { id: uid(), text, done: false }] } })
-      return { ok: true, text: `задача в «${block.title}»: «${cut(text)}»` }
+      return { ok: true, text: `задача в «${blockTitle(block)}»: «${cut(text)}»` }
     }
     case 'toggle_task': {
       const match = String(a.match ?? '').trim()
       if (!match) return { ok: false, text: 'toggle_task без match' }
       const dateKey = todayKey()
       const { defs, data, key } = dayState(dateKey)
-      const hit = findItem(data, defs, match)
+      const hit = findItem(data, defs, match, typeof a.block === 'string' ? a.block : undefined)
       if (!hit) return { ok: false, text: `пункт «${cut(match, 30)}» не найден в дне` }
       const done = a.done === undefined ? true : !!a.done
       hit.item.done = done
       writeLS(key, data)
-      return { ok: true, text: `${done ? 'выполнено' : 'снова активно'}: «${cut(hit.item.text)}» (${hit.blockTitle})` }
+      return { ok: true, text: `${done ? 'выполнено' : 'снова активно'}: «${cut(hit.item.text)}» (${hit.blockTitle || 'без названия'})` }
     }
     case 'remove_task': {
       const match = String(a.match ?? '').trim()
       if (!match) return { ok: false, text: 'remove_task без match' }
       const dateKey = todayKey()
       const { defs, data, key } = dayState(dateKey)
-      const hit = findItem(data, defs, match)
+      const hit = findItem(data, defs, match, typeof a.block === 'string' ? a.block : undefined)
       if (!hit) return { ok: false, text: `пункт «${cut(match, 30)}» не найден в дне` }
       // удаляем из того массива, где нашли: findItem вернул ссылку на item — чистим по id рекурсивно
       const strip = (lists: { items: BlockItem[]; lists?: BlockList[] }[]): boolean => {
@@ -142,6 +169,66 @@ function exec(a: any): AiActionResult {
       if (!removed) return { ok: false, text: 'не смог удалить пункт' }
       writeLS(key, data)
       return { ok: true, text: `удалено: «${cut(hit.item.text)}» (${hit.blockTitle})` }
+    }
+    case 'add_block': {
+      const title = String(a.title ?? '').trim()
+      const dateKey = todayKey()
+      const { defs, data, key } = dayState(dateKey)
+      const def: BlockDef = { id: uid(), title, withTime: false, inDashboard: true, allow: { ...FULL_ALLOW } }
+      writeLS(`aod4-today-blocks-${dateKey}`, [...defs, def])
+      if (!data[def.id]) writeLS(key, { ...data, [def.id]: { items: [], lists: [] } })
+      return { ok: true, text: `новый блок «${title || 'без названия'}»` }
+    }
+    case 'add_saved_block': {
+      const match = String(a.match ?? '').trim()
+      if (!match) return { ok: false, text: 'add_saved_block без match' }
+      const templates = readLS<BlockTemplate[]>('aod4-block-templates', [])
+      const m = norm(match)
+      const tpl =
+        templates.find((t) => norm(t.title) === m) ??
+        templates.find((t) => { const tt = norm(t.title); return tt.length > 0 && (tt.includes(m) || m.includes(tt)) })
+      if (!tpl) return { ok: false, text: `сохранённый блок «${cut(match, 30)}» не найден` }
+      const dateKey = todayKey()
+      const { defs, data, key } = dayState(dateKey)
+      const def: BlockDef = {
+        id: uid(),
+        title: tpl.title,
+        withTime: tpl.withTime,
+        inDashboard: tpl.inDashboard,
+        allow: { ...(tpl.allow ?? FULL_ALLOW) },
+        templateId: tpl.id,
+      }
+      writeLS(`aod4-today-blocks-${dateKey}`, [...defs, def])
+      writeLS(key, {
+        ...data,
+        [def.id]: {
+          items: cloneTemplateItems(tpl.items, tpl.withTime),
+          lists: tpl.lists.map((l) => cloneTemplateList(l, tpl.withTime)),
+        },
+      })
+      return { ok: true, text: `блок из сохранённых: «${tpl.title || 'без названия'}»` }
+    }
+    case 'clear_block': {
+      const match = String(a.match ?? '').trim()
+      if (!match) return { ok: false, text: 'clear_block без match' }
+      const { defs, data, key } = dayState(todayKey())
+      const def = findBlock(defs, match)
+      if (!def) return { ok: false, text: `блок «${cut(match, 30)}» не найден` }
+      writeLS(key, { ...data, [def.id]: { items: [], lists: [] } })
+      return { ok: true, text: `блок «${blockTitle(def)}» очищен` }
+    }
+    case 'remove_block': {
+      const match = String(a.match ?? '').trim()
+      if (!match) return { ok: false, text: 'remove_block без match' }
+      const dateKey = todayKey()
+      const { defs, data, key } = dayState(dateKey)
+      const def = findBlock(defs, match)
+      if (!def) return { ok: false, text: `блок «${cut(match, 30)}» не найден` }
+      writeLS(`aod4-today-blocks-${dateKey}`, defs.filter((d) => d.id !== def.id))
+      const next = { ...data }
+      delete next[def.id]
+      writeLS(key, next)
+      return { ok: true, text: `блок «${blockTitle(def)}» удалён из дня` }
     }
     case 'add_therapy_note': {
       const text = String(a.text ?? '').trim()

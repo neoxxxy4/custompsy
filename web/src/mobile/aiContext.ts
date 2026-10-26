@@ -2,7 +2,7 @@ import { readLS } from '../lib/sync'
 import { WD } from '../lib/dayStats'
 import { CATEGORIES, isInverseParam, round2 } from './mapLogic'
 import { BELIEF_CATEGORIES } from './beliefsData'
-import { emotionName, seedDayBlocks, seedTodayData, todayKey, type BlockDef, type Diary, type EmotionTag, type ListRecord, type Note, type Task, type TodayData } from '../views/practice/store'
+import { emotionName, seedDayBlocks, seedTodayData, todayKey, type BlockDef, type BlockTemplate, type Diary, type EmotionTag, type ListRecord, type Note, type Task, type TodayData } from '../views/practice/store'
 
 // компактная сводка данных всех инструментов для ИИ-чата.
 // Цель — дать контекст, а не свалку: топ-N + усечение текстов, лимит на всё ~4000 символов.
@@ -210,16 +210,21 @@ export function buildDayContext(): string {
       const block = data[def.id]
       if (!block) continue
       const items = block.items ?? []
-      const done = items.filter((i) => i.done).length
-      const undone = items.filter((i) => !i.done).slice(0, 4).map((i) => `«${cut(i.time ? `${i.time} ${i.text}` : i.text, 40)}»`)
-      let line = `${def.title || def.id}: ${done}/${items.length} выполнено`
-      if (undone.length) line += `, осталось: ${undone.join(', ')}`
+      const done = items.filter((i) => i.done)
+      const undone = items.filter((i) => !i.done)
+      let line = `${def.title || 'без названия'}: ${done.length}/${items.length} выполнено`
+      if (done.length) line += `, сделано: ${done.slice(0, 8).map((i) => `«${cut(i.text, 30)}»`).join(', ')}`
+      if (undone.length) line += `, осталось: ${undone.slice(0, 8).map((i) => `«${cut(i.time ? `${i.time} ${i.text}` : i.text, 30)}»`).join(', ')}`
       for (const l of block.lists ?? []) {
         const li = l.items ?? []
         line += ` | ${l.title || 'список'}: ${li.filter((i) => i.done).length}/${li.length}`
       }
       parts.push(line)
     }
+  }
+  const templates = readLS<BlockTemplate[]>('aod4-block-templates', [])
+  if (templates.length) {
+    parts.push(`сохранённые блоки (можно добавить в день): ${templates.slice(0, 15).map((t) => `«${t.title || 'без названия'}»`).join(', ')}`)
   }
   const path = pathSection()
   if (path) parts.push(path)
