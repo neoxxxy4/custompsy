@@ -1,22 +1,22 @@
 import { useRef, useState } from 'react'
 
-// голосовой ввод:
-// 1) Web Speech API (Chrome) — распознаёт прямо в браузере, бесплатно
+// голосовой ввод в режиме «зажал — говоришь, отпустил — готово»:
+// 1) Web Speech API (Chrome) — распознаёт прямо в браузере
 // 2) фолбэк для WebView/APK: запись через MediaRecorder → наш /api/stt (Yandex SpeechKit)
 export function useVoiceInput(onText: (t: string) => void, onError: (msg: string) => void) {
   const [listening, setListening] = useState(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recRef = useRef<any>(null)
   const mediaRef = useRef<{ rec: MediaRecorder; chunks: Blob[] } | null>(null)
+  // если отпустили кнопку раньше, чем разрешили микрофон — останавливаем сразу после старта
+  const wantStopRef = useRef(false)
 
   const startVoice = async () => {
+    if (listening || recRef.current || mediaRef.current) return
+    wantStopRef.current = false
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (globalThis.window as any).SpeechRecognition ?? (globalThis.window as any).webkitSpeechRecognition
     if (SR) {
-      if (listening) {
-        recRef.current?.stop()
-        return
-      }
       const rec = new SR()
       rec.lang = 'ru-RU'
       rec.interimResults = true
@@ -27,25 +27,23 @@ export function useVoiceInput(onText: (t: string) => void, onError: (msg: string
         for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript
         onText(text)
       }
-      rec.onend = () => setListening(false)
+      rec.onend = () => { recRef.current = null; setListening(false) }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rec.onerror = (e: any) => {
+        recRef.current = null
         setListening(false)
-        onError(`голосовой ввод не сработал (${e?.error ?? 'ошибка'}) — проверь микрофон и интернет`)
+        if (e?.error !== 'aborted') onError(`голосовой ввод не сработал (${e?.error ?? 'ошибка'}) — проверь микрофон и интернет`)
       }
       recRef.current = rec
       setListening(true)
       rec.start()
+      if (wantStopRef.current) { try { rec.stop() } catch { /* noop */ } }
       return
     }
 
     // ─── фолбэк: MediaRecorder → SpeechKit ───
     if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
       onError('голосовой ввод не поддерживается здесь — открой в Chrome на телефоне')
-      return
-    }
-    if (listening) {
-      mediaRef.current?.rec.stop()
       return
     }
     try {
@@ -61,7 +59,7 @@ export function useVoiceInput(onText: (t: string) => void, onError: (msg: string
         setListening(false)
         mediaRef.current = null
         const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' })
-        if (blob.size < 500) { onError('ничего не записалось — говори после включения микрофона'); return }
+        if (blob.size < 500) { onError('ничего не записалось — зажми кнопку и говори'); return }
         try {
           const r = await fetch('/api/stt', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob })
           const data = await r.json().catch(() => null)
@@ -74,15 +72,28 @@ export function useVoiceInput(onText: (t: string) => void, onError: (msg: string
         }
       }
       rec.onerror = () => {
+        mediaRef.current = null
         setListening(false)
         onError('не смог записать звук с микрофона')
       }
       rec.start()
       setListening(true)
+      if (wantStopRef.current) { try { rec.stop() } catch { /* noop */ } }
     } catch {
       onError('нет доступа к микрофону — разреши в настройках приложения')
     }
   }
 
-  return { listening, startVoice }
+  const stopVoice = () => {
+    if (!listening && !recRef.current && !mediaRef.current) {
+      wantStopRef.current = true // старт ещё в процессе (ждём микрофон) — остановимся сразу после
+      return
+    }
+    const sr = recRef.current
+    if (sr) { try { sr.stop() } catch { /* noop */ } }
+    const media = mediaRef.current
+    if (media && media.rec.state !== 'inactive') { try { media.rec.stop() } catch { /* noop */ } }
+  }
+
+  return { listening, startVoice, stopVoice }
 }

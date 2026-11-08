@@ -24,8 +24,19 @@ export default function TherapyChat() {
   // сколько разделов данных сейчас уйдёт вместе с сообщением
   const ctxSections = useMemo(() => (buildAiContext().match(/\[/g) ?? []).length, [messages.length])
 
-  // ─── голосовой ввод (Web Speech API) ───
-  const { listening, startVoice } = useVoiceInput(setDraft, setError)
+  // ─── голосовой ввод: зажал — говоришь, отпустил — готово ───
+  const { listening, startVoice, stopVoice } = useVoiceInput(setDraft, setError)
+  const micPressed = useRef(false)
+  const micDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault()
+    micPressed.current = true
+    startVoice()
+  }
+  const micUp = () => {
+    if (!micPressed.current) return
+    micPressed.current = false
+    stopVoice()
+  }
 
   // вход по долгому нажатию из «Дня» — сразу слушаем
   useEffect(() => {
@@ -153,7 +164,11 @@ export default function TherapyChat() {
           style={{ height: 40, background: 'var(--surface)', border: `1px solid ${listening ? '#ef4444' : 'var(--line)'}`, color: 'var(--light)', fontSize: 13 }}
         />
         <button
-          onClick={startVoice}
+          onPointerDown={micDown}
+          onPointerUp={micUp}
+          onPointerCancel={micUp}
+          onPointerLeave={micUp}
+          onContextMenu={(e) => e.preventDefault()}
           className="flex-none grid place-items-center rounded-xl"
           style={{
             width: 40,
@@ -161,8 +176,9 @@ export default function TherapyChat() {
             background: listening ? '#ef4444' : 'var(--surface)',
             border: '1px solid var(--line)',
             color: listening ? '#fff' : 'var(--muted)',
+            touchAction: 'none',
           }}
-          aria-label="Голосовой ввод"
+          aria-label="Зажми и говори"
         >
           {listening ? <MicOff size={17} strokeWidth={2} /> : <Mic size={17} strokeWidth={2} />}
         </button>

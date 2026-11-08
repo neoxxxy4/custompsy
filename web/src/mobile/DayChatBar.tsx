@@ -25,7 +25,18 @@ export default function DayChatBar() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const { listening, startVoice } = useVoiceInput((t) => { setDraft(t); setOpen(true) }, setError)
+  const { listening, startVoice, stopVoice } = useVoiceInput((t) => { setDraft(t); setOpen(true) }, setError)
+  const micPressed = useRef(false)
+  const micDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault()
+    micPressed.current = true
+    startVoice()
+  }
+  const micUp = () => {
+    if (!micPressed.current) return
+    micPressed.current = false
+    stopVoice()
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
@@ -93,10 +104,14 @@ export default function DayChatBar() {
         }}
       />
       <button
-        onClick={startVoice}
+        onPointerDown={micDown}
+        onPointerUp={micUp}
+        onPointerCancel={micUp}
+        onPointerLeave={micUp}
+        onContextMenu={(e) => e.preventDefault()}
         className="flex-none grid place-items-center rounded-xl"
-        style={{ width: 36, height: 36, background: listening ? '#ef4444' : 'var(--surface-2)', color: listening ? '#fff' : 'var(--muted)' }}
-        aria-label="Голосовой ввод"
+        style={{ width: 36, height: 36, background: listening ? '#ef4444' : 'var(--surface-2)', color: listening ? '#fff' : 'var(--muted)', touchAction: 'none' }}
+        aria-label="Зажми и говори"
       >
         {listening ? <MicOff size={15} strokeWidth={2} /> : <Mic size={15} strokeWidth={2} />}
       </button>
