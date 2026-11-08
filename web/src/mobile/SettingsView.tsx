@@ -47,16 +47,15 @@ const TOOL_MODE_LABELS: Record<ToolMode, string> = {
 const DEFAULT_TOOL_CONFIGS: Record<MTab, ToolConfig> = {
   notes: { mode: 'both' },
   emotions: { mode: 'both' },
-  therapy: { mode: 'both' },
   map: { mode: 'both' },
   progress: { mode: 'both' },
-  path: { mode: 'both' },
   social: { mode: 'both' },
   psysoc: { mode: 'both' },
   aichat: { mode: 'both' },
   beliefs: { mode: 'both' },
   needs: { mode: 'both' },
   roles: { mode: 'both' },
+  goals: { mode: 'both' },
   manager: { mode: 'both' },
 }
 

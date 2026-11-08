@@ -3,10 +3,8 @@ import MobileBottomNav, { type BottomTabId } from './MobileBottomNav'
 import TodayView from './TodayView'
 import MapView from './MapView'
 import EmotionsView from './EmotionsView'
-import PathView from './PathView'
 import ProgressView from './ProgressView'
 import SettingsView from './SettingsView'
-import TherapyView from './TherapyView'
 import SessionView from './SessionView'
 import ChatView from './ChatView'
 import SocialView from './SocialView'
@@ -14,6 +12,7 @@ import PsySocialView from './PsySocialView'
 import BeliefsView from './BeliefsView'
 import NeedsView from './NeedsView'
 import RolesView from './RolesView'
+import GoalsView from './GoalsView'
 import ManagerView from './ManagerView'
 import AiChatView from './AiChatView'
 import RecordsView from './RecordsView'
@@ -86,16 +85,12 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
     switch (id) {
       case 'notes':
         return <RecordsView onHome={() => setActiveTool(null)} />
-      case 'therapy':
-        return <TherapyView />
       case 'map':
         return <MapView />
       case 'emotions':
         return <EmotionsView />
       case 'progress':
         return <ProgressView />
-      case 'path':
-        return <PathView />
       case 'social':
         return <SocialView />
       case 'psysoc':
@@ -106,6 +101,8 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         return <NeedsView />
       case 'roles':
         return <RolesView />
+      case 'goals':
+        return <GoalsView />
       case 'manager':
         return <ManagerView />
       case 'aichat':

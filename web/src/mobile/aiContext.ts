@@ -6,6 +6,7 @@ import { emotionName, seedDayBlocks, seedTodayData, todayKey, type BlockDef, typ
 import { allNeeds } from './needsData'
 import { ROLES, ROLES_KEY, roleById, type RoleEpisode } from './rolesData'
 import { DEFAULT_MANAGER_TABS, MANAGER_ITEMS_KEY, MANAGER_TABS_KEY, type ManagerItem, type ManagerTab } from './managerData'
+import { DEFAULT_GOALS, GOALS_STRUCTURE_KEY, GOALS_VALS_KEY, type GoalArea } from './goalsData'
 
 // компактная сводка данных всех инструментов для ИИ-чата.
 // Цель — дать контекст, а не свалку: топ-N + усечение текстов, лимит на всё ~4000 символов.
@@ -204,6 +205,17 @@ function rolesSection(): string | null {
   return `[Роли — треугольник Карпмана] всего эпизодов: ${eps.length} (${counts}). Последние: ${recent.join(', ')}`
 }
 
+function goalsSection(): string | null {
+  const areas = readLS<GoalArea[]>(GOALS_STRUCTURE_KEY, DEFAULT_GOALS)
+  const vals = readLS<Record<string, number>>(GOALS_VALS_KEY, {})
+  const withVals = areas.filter((a) => a.params.some((p) => (vals[p.id] ?? 0) > 0))
+  if (!withVals.length) return null
+  const level = (a: GoalArea) => a.params.reduce((s, p) => s + (vals[p.id] ?? 0), 0) / Math.max(a.params.length, 1)
+  const sorted = [...areas].sort((a, b) => level(a) - level(b))
+  const weak = sorted.slice(0, 3).map((a) => `«${a.name}» ${Math.round(level(a) * 10) / 10}/12`)
+  return `[Цели — уровень областей 0-12] самые слабые: ${weak.join(', ')}`
+}
+
 function managerSection(): string | null {
   const items = readLS<ManagerItem[]>(MANAGER_ITEMS_KEY, [])
   if (!items.length) return null
@@ -228,6 +240,7 @@ export function buildAiContext(): string {
     beliefsSection(),
     needsSection(),
     rolesSection(),
+    goalsSection(),
     managerSection(),
     psysocSection(),
     socialSection(),

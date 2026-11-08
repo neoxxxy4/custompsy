@@ -7,16 +7,15 @@ import {
   Drama,
   Flame,
   Flower2,
-  Heart,
   HeartHandshake,
   Home,
   LayoutDashboard,
   LayoutGrid,
   Map as MapIcon,
   MessageCircle,
-  Route,
   Settings,
   StickyNote,
+  Target,
   TrendingUp,
   Users,
   type LucideIcon,
@@ -30,15 +29,14 @@ export type BottomTabId = AppTabId | MTab
 export type MTab =
   | 'notes'
   | 'emotions'
-  | 'therapy'
   | 'map'
   | 'progress'
-  | 'path'
   | 'social'
   | 'psysoc'
   | 'beliefs'
   | 'needs'
   | 'roles'
+  | 'goals'
   | 'manager'
   | 'aichat'
 
@@ -67,15 +65,14 @@ export const TOOL_META: Record<
 > = {
   notes: { label: 'Заметки', icon: StickyNote },
   emotions: { label: 'Эмоции', icon: Flower2 },
-  therapy: { label: 'Терапия', icon: Heart },
   map: { label: 'Самооценка', icon: MapIcon },
   progress: { label: 'Прогресс', icon: TrendingUp },
-  path: { label: 'Путь', icon: Route },
   social: { label: 'Социум IQ', icon: Users },
   psysoc: { label: 'Социум', icon: HeartHandshake },
   beliefs: { label: 'Убеждения', icon: Brain },
   needs: { label: 'Потребности', icon: Flame },
   roles: { label: 'Роли', icon: Drama },
+  goals: { label: 'Цели', icon: Target },
   manager: { label: 'Менеджер', icon: Briefcase },
   aichat: { label: 'ИИ-чат', icon: Bot },
 }
@@ -113,10 +110,9 @@ export const DEFAULT_TABS: AppTab[] = [
         items: [
           { id: 'map', label: 'Самооценка' },
           { id: 'emotions', label: 'Эмоции' },
-          { id: 'therapy', label: 'Терапия' },
+          { id: 'goals', label: 'Цели' },
           { id: 'aichat', label: 'ИИ-чат' },
           { id: 'progress', label: 'Прогресс' },
-          { id: 'path', label: 'Путь' },
           { id: 'psysoc', label: 'Социум' },
           { id: 'social', label: 'Социум IQ' },
           { id: 'beliefs', label: 'Убеждения' },
