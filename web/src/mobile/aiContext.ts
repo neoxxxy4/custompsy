@@ -3,6 +3,7 @@ import { WD } from '../lib/dayStats'
 import { CATEGORIES, isInverseParam, round2 } from './mapLogic'
 import { BELIEF_CATEGORIES } from './beliefsData'
 import { emotionName, seedDayBlocks, seedTodayData, todayKey, type BlockDef, type BlockTemplate, type Diary, type EmotionTag, type ListRecord, type Note, type Task, type TodayData } from '../views/practice/store'
+import { allNeeds } from './needsData'
 
 // компактная сводка данных всех инструментов для ИИ-чата.
 // Цель — дать контекст, а не свалку: топ-N + усечение текстов, лимит на всё ~4000 символов.
@@ -181,11 +182,24 @@ function pathSection(): string | null {
   return `[Путь] текущая «ненормальность» ${pct}% (цель пользователя — снижать до 0), уровень прокачки ${level}`
 }
 
+function needsSection(): string | null {
+  const vals = readLS<Record<string, { imp: number; sat: number }>>('aod4-needs-v1', {})
+  const custom = readLS<Record<number, string[]>>('aod4-needs-custom', {})
+  const defs = allNeeds(custom)
+    .map((n) => ({ n, v: vals[n.id] }))
+    .filter((x) => x.v && x.v.imp > 0 && x.v.imp > x.v.sat)
+    .sort((a, b) => b.v.imp - b.v.sat - (a.v.imp - a.v.sat))
+    .slice(0, 6)
+  if (!defs.length) return null
+  return `[Потребности — зона дефицита (важно, но не закрыто)] ${defs.map(({ n, v }) => `«${n.text}»: значимость ${v.imp}/10, удовлетворённость ${v.sat}/10`).join('; ')}`
+}
+
 export function buildAiContext(): string {
   const sections = [
     pathSection(),
     selfmapSection(),
     beliefsSection(),
+    needsSection(),
     psysocSection(),
     socialSection(),
     therapySection(),

@@ -2,6 +2,7 @@ import { readLS, writeLS } from '../lib/sync'
 import { seedDayBlocks, seedTodayData, todayKey, uid, FULL_ALLOW, cloneTemplateItems, cloneTemplateList, type BlockDef, type BlockItem, type BlockList, type BlockTemplate, type ListRecord, type Note, type TodayData } from '../views/practice/store'
 import { WD } from '../lib/dayStats'
 import { BELIEF_CATEGORIES } from './beliefsData'
+import { allNeeds } from './needsData'
 
 // действия, которые ИИ вставляет в ответ блоками [ACTION]{json}[/ACTION]
 
@@ -313,6 +314,26 @@ function exec(a: any): AiActionResult {
       const pct = Math.max(0, Math.min(100, Math.round(Number(a.pct) || 0)))
       writeLS('aod4-path-pct', pct)
       return { ok: true, text: `шкала ненормальности → ${pct}%` }
+    }
+    case 'set_need': {
+      const match = norm(String(a.match ?? ''))
+      if (!match) return { ok: false, text: 'set_need без match' }
+      const custom = readLS<Record<number, string[]>>('aod4-needs-custom', {})
+      const all = allNeeds(custom)
+      const need =
+        all.find((n) => norm(n.text) === match) ??
+        all.find((n) => norm(n.text).includes(match) || match.includes(norm(n.text)))
+      if (!need) return { ok: false, text: `потребность «${cut(match, 30)}» не найдена` }
+      const vals = { ...readLS<Record<string, { imp: number; sat: number }>>('aod4-needs-v1', {}) }
+      const cur = vals[need.id] ?? { imp: 0, sat: 0 }
+      const next = {
+        imp: a.imp === undefined ? cur.imp : Math.max(0, Math.min(10, Math.round(Number(a.imp) || 0))),
+        sat: a.sat === undefined ? cur.sat : Math.max(0, Math.min(10, Math.round(Number(a.sat) || 0))),
+      }
+      if (next.imp === 0 && next.sat === 0) delete vals[need.id]
+      else vals[need.id] = next
+      writeLS('aod4-needs-v1', vals)
+      return { ok: true, text: `потребность «${cut(need.text, 40)}» → значимость ${next.imp}, удовлетворённость ${next.sat}` }
     }
     default:
       return { ok: false, text: `неизвестное действие: ${a.type}` }
