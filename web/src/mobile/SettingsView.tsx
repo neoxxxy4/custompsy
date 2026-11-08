@@ -55,6 +55,7 @@ const DEFAULT_TOOL_CONFIGS: Record<MTab, ToolConfig> = {
   psysoc: { mode: 'both' },
   aichat: { mode: 'both' },
   beliefs: { mode: 'both' },
+  needs: { mode: 'both' },
 }
 
 export default function SettingsView({
@@ -459,7 +460,7 @@ export default function SettingsView({
         <div className="grid grid-cols-2 gap-2">
           {(Object.keys(TOOL_META) as MTab[]).map((id) => {
             const meta = TOOL_META[id]
-            const cfg = toolConfigs[id] ?? DEFAULT_TOOL_CONFIGS[id]
+            const cfg = toolConfigs[id] ?? DEFAULT_TOOL_CONFIGS[id] ?? { mode: 'both' as ToolMode }
             return (
               <button
                 key={id}
@@ -545,7 +546,7 @@ export default function SettingsView({
       {toolSheet && (
         <ToolConfigSheet
           id={toolSheet}
-          config={toolConfigs[toolSheet] ?? DEFAULT_TOOL_CONFIGS[toolSheet]}
+          config={toolConfigs[toolSheet] ?? DEFAULT_TOOL_CONFIGS[toolSheet] ?? { mode: 'both' }}
           onChange={(patch) => updateToolConfig(toolSheet, patch)}
           onClose={() => setToolSheet(null)}
         />
