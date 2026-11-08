@@ -57,6 +57,7 @@ const DEFAULT_TOOL_CONFIGS: Record<MTab, ToolConfig> = {
   beliefs: { mode: 'both' },
   needs: { mode: 'both' },
   roles: { mode: 'both' },
+  manager: { mode: 'both' },
 }
 
 export default function SettingsView({

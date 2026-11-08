@@ -4,6 +4,7 @@ import { WD } from '../lib/dayStats'
 import { BELIEF_CATEGORIES } from './beliefsData'
 import { allNeeds } from './needsData'
 import { ROLES, ROLES_KEY, roleById, type RoleEpisode } from './rolesData'
+import { DEFAULT_MANAGER_TABS, MANAGER_ITEMS_KEY, MANAGER_TABS_KEY, type ManagerItem, type ManagerTab } from './managerData'
 
 // действия, которые ИИ вставляет в ответ блоками [ACTION]{json}[/ACTION]
 
@@ -361,6 +362,25 @@ function exec(a: any): AiActionResult {
       if (typeof a.action === 'string' && a.action.trim()) ep.action = a.action.trim()
       writeLS(ROLES_KEY, [ep, ...eps])
       return { ok: true, text: `эпизод в треугольнике (роль: ${roleById(role).name}): «${cut(text)}»` }
+    }
+    case 'add_manager_item': {
+      const text = String(a.text ?? '').trim()
+      if (!text) return { ok: false, text: 'пункт менеджера без текста' }
+      const tabs = [...DEFAULT_MANAGER_TABS, ...readLS<ManagerTab[]>(MANAGER_TABS_KEY, [])]
+      let tab = tabs.find((t) => t.id === 'tasks')!
+      if (typeof a.tab === 'string' && a.tab.trim()) {
+        const m = norm(a.tab)
+        tab = tabs.find((t) => norm(t.name) === m)
+          ?? tabs.find((t) => norm(t.name).includes(m) || m.includes(norm(t.name)))
+          ?? tab
+      }
+      const item: ManagerItem = { id: uid(), ts: Date.now(), tabId: tab.id, text, done: false }
+      if (a.urgent !== undefined) item.urgent = !!a.urgent
+      if (a.important !== undefined) item.important = !!a.important
+      const items = readLS<ManagerItem[]>(MANAGER_ITEMS_KEY, [])
+      writeLS(MANAGER_ITEMS_KEY, [item, ...items])
+      const flags = [item.urgent && 'срочно', item.important && 'важно'].filter(Boolean).join('+')
+      return { ok: true, text: `в менеджер (${tab.name}${flags ? `, ${flags}` : ''}): «${cut(text)}»` }
     }
     default:
       return { ok: false, text: `неизвестное действие: ${a.type}` }

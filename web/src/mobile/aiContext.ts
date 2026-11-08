@@ -5,6 +5,7 @@ import { BELIEF_CATEGORIES } from './beliefsData'
 import { emotionName, seedDayBlocks, seedTodayData, todayKey, type BlockDef, type BlockTemplate, type Diary, type EmotionTag, type ListRecord, type Note, type Task, type TodayData } from '../views/practice/store'
 import { allNeeds } from './needsData'
 import { ROLES, ROLES_KEY, roleById, type RoleEpisode } from './rolesData'
+import { DEFAULT_MANAGER_TABS, MANAGER_ITEMS_KEY, MANAGER_TABS_KEY, type ManagerItem, type ManagerTab } from './managerData'
 
 // компактная сводка данных всех инструментов для ИИ-чата.
 // Цель — дать контекст, а не свалку: топ-N + усечение текстов, лимит на всё ~4000 символов.
@@ -203,6 +204,23 @@ function rolesSection(): string | null {
   return `[Роли — треугольник Карпмана] всего эпизодов: ${eps.length} (${counts}). Последние: ${recent.join(', ')}`
 }
 
+function managerSection(): string | null {
+  const items = readLS<ManagerItem[]>(MANAGER_ITEMS_KEY, [])
+  if (!items.length) return null
+  const customTabs = readLS<ManagerTab[]>(MANAGER_TABS_KEY, [])
+  const tabs = [...DEFAULT_MANAGER_TABS, ...customTabs]
+  const name = (id: string) => tabs.find((t) => t.id === id)?.name ?? id
+  const open = items.filter((i) => !i.done)
+  const byTab = tabs
+    .map((t) => ({ t, n: open.filter((i) => i.tabId === t.id).length }))
+    .filter((x) => x.n > 0)
+    .map((x) => `${x.name}: ${x.n}`)
+  const urgentImportant = open.filter((i) => i.urgent && i.important).map((i) => `«${cut(i.text, 40)}»`)
+  let s = `[Менеджер] открытых пунктов: ${open.length}${byTab.length ? ` (${byTab.join(', ')})` : ''}`
+  if (urgentImportant.length) s += `. Срочно-важные сейчас: ${urgentImportant.slice(0, 5).join(', ')}`
+  return s
+}
+
 export function buildAiContext(): string {
   const sections = [
     pathSection(),
@@ -210,6 +228,7 @@ export function buildAiContext(): string {
     beliefsSection(),
     needsSection(),
     rolesSection(),
+    managerSection(),
     psysocSection(),
     socialSection(),
     therapySection(),

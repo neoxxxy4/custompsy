@@ -41,6 +41,7 @@ const ACTIONS_SPEC: &str = "Ты можешь ВЫПОЛНЯТЬ ДЕЙСТВИ�
 - set_belief {\"match\":\"фрагмент текста убеждения\",\"strength\":0-12} — выставить силу убеждения\n\
 - set_need {\"match\":\"фрагмент потребности\",\"imp\":0-10,\"sat\":0-10} — значимость и/или удовлетворённость потребности\n\
 - add_role_episode {\"role\":\"victim|rescuer|persecutor\",\"text\":\"...\",\"need\":\"фрагмент потребности\",\"belief\":\"фрагмент убеждения\",\"action\":\"как выйду\"} — эпизод треугольника Карпмана (victim=жертва, rescuer=спасатель, persecutor=преследователь)\n\
+- add_manager_item {\"tab\":\"задачи|идеи|проекты|проблемы|дела\",\"text\":\"...\",\"urgent\":true|false,\"important\":true|false} — пункт в инструмент «Менеджер» (urgent/important необязательны)\n\
 - set_path_pct {\"pct\":0-100} — шкала ненормальности\n\
 Примеры: «сними галочку с X» → [ACTION]{\"type\":\"toggle_task\",\"match\":\"X\",\"done\":false}[/ACTION]; \
 «отметь X» → [ACTION]{\"type\":\"toggle_task\",\"match\":\"X\",\"done\":true}[/ACTION]; \
