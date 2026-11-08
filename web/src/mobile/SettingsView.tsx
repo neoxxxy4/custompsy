@@ -56,6 +56,7 @@ const DEFAULT_TOOL_CONFIGS: Record<MTab, ToolConfig> = {
   aichat: { mode: 'both' },
   beliefs: { mode: 'both' },
   needs: { mode: 'both' },
+  roles: { mode: 'both' },
 }
 
 export default function SettingsView({

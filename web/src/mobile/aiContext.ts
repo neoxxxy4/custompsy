@@ -4,6 +4,7 @@ import { CATEGORIES, isInverseParam, round2 } from './mapLogic'
 import { BELIEF_CATEGORIES } from './beliefsData'
 import { emotionName, seedDayBlocks, seedTodayData, todayKey, type BlockDef, type BlockTemplate, type Diary, type EmotionTag, type ListRecord, type Note, type Task, type TodayData } from '../views/practice/store'
 import { allNeeds } from './needsData'
+import { ROLES, ROLES_KEY, roleById, type RoleEpisode } from './rolesData'
 
 // компактная сводка данных всех инструментов для ИИ-чата.
 // Цель — дать контекст, а не свалку: топ-N + усечение текстов, лимит на всё ~4000 символов.
@@ -194,12 +195,21 @@ function needsSection(): string | null {
   return `[Потребности — зона дефицита (важно, но не закрыто)] ${defs.map(({ n, v }) => `«${n.text}»: значимость ${v.imp}/10, удовлетворённость ${v.sat}/10`).join('; ')}`
 }
 
+function rolesSection(): string | null {
+  const eps = readLS<RoleEpisode[]>(ROLES_KEY, [])
+  if (!eps.length) return null
+  const counts = ROLES.map((r) => `${r.name.toLowerCase()}: ${eps.filter((e) => e.myRole === r.id).length}`).join(', ')
+  const recent = eps.slice(0, 3).map((e) => `«${cut(e.text, 50)}» (${roleById(e.myRole).name.toLowerCase()})`)
+  return `[Роли — треугольник Карпмана] всего эпизодов: ${eps.length} (${counts}). Последние: ${recent.join(', ')}`
+}
+
 export function buildAiContext(): string {
   const sections = [
     pathSection(),
     selfmapSection(),
     beliefsSection(),
     needsSection(),
+    rolesSection(),
     psysocSection(),
     socialSection(),
     therapySection(),

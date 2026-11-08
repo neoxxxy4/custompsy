@@ -13,6 +13,7 @@ import SocialView from './SocialView'
 import PsySocialView from './PsySocialView'
 import BeliefsView from './BeliefsView'
 import NeedsView from './NeedsView'
+import RolesView from './RolesView'
 import AiChatView from './AiChatView'
 import RecordsView from './RecordsView'
 import DashboardView from './DashboardView'
@@ -102,6 +103,8 @@ export default function MobileApp({ theme, onToggleTheme }: { theme: ThemeId; on
         return <BeliefsView />
       case 'needs':
         return <NeedsView />
+      case 'roles':
+        return <RolesView />
       case 'aichat':
         return <AiChatView />
       default:

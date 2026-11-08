@@ -40,6 +40,7 @@ const ACTIONS_SPEC: &str = "Ты можешь ВЫПОЛНЯТЬ ДЕЙСТВИ�
 - add_psysoc_situation {\"person\":\"имя\",\"text\":\"...\",\"emo\":\"trauma|offense|shame|guilt|fear|anger\",\"sign\":0-12} — ситуация человеку (человек создаётся, если его нет)\n\
 - set_belief {\"match\":\"фрагмент текста убеждения\",\"strength\":0-12} — выставить силу убеждения\n\
 - set_need {\"match\":\"фрагмент потребности\",\"imp\":0-10,\"sat\":0-10} — значимость и/или удовлетворённость потребности\n\
+- add_role_episode {\"role\":\"victim|rescuer|persecutor\",\"text\":\"...\",\"need\":\"фрагмент потребности\",\"belief\":\"фрагмент убеждения\",\"action\":\"как выйду\"} — эпизод треугольника Карпмана (victim=жертва, rescuer=спасатель, persecutor=преследователь)\n\
 - set_path_pct {\"pct\":0-100} — шкала ненормальности\n\
 Примеры: «сними галочку с X» → [ACTION]{\"type\":\"toggle_task\",\"match\":\"X\",\"done\":false}[/ACTION]; \
 «отметь X» → [ACTION]{\"type\":\"toggle_task\",\"match\":\"X\",\"done\":true}[/ACTION]; \

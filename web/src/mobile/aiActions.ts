@@ -3,6 +3,7 @@ import { seedDayBlocks, seedTodayData, todayKey, uid, FULL_ALLOW, cloneTemplateI
 import { WD } from '../lib/dayStats'
 import { BELIEF_CATEGORIES } from './beliefsData'
 import { allNeeds } from './needsData'
+import { ROLES, ROLES_KEY, roleById, type RoleEpisode } from './rolesData'
 
 // действия, которые ИИ вставляет в ответ блоками [ACTION]{json}[/ACTION]
 
@@ -334,6 +335,32 @@ function exec(a: any): AiActionResult {
       else vals[need.id] = next
       writeLS('aod4-needs-v1', vals)
       return { ok: true, text: `потребность «${cut(need.text, 40)}» → значимость ${next.imp}, удовлетворённость ${next.sat}` }
+    }
+    case 'add_role_episode': {
+      const text = String(a.text ?? '').trim()
+      if (!text) return { ok: false, text: 'эпизод без текста' }
+      const role = ROLES.some((r) => r.id === a.role) ? (a.role as RoleEpisode['myRole']) : 'victim'
+      const eps = readLS<RoleEpisode[]>(ROLES_KEY, [])
+      const ep: RoleEpisode = { id: uid(), ts: Date.now(), text, myRole: role }
+      if (typeof a.need === 'string' && a.need.trim()) {
+        const m = norm(a.need)
+        const need = allNeeds(readLS<Record<number, string[]>>('aod4-needs-custom', {}))
+          .find((n) => norm(n.text).includes(m) || m.includes(norm(n.text)))
+        if (need) ep.needId = need.id
+      }
+      if (typeof a.belief === 'string' && a.belief.trim()) {
+        const m = norm(a.belief)
+        let found: string | undefined
+        BELIEF_CATEGORIES.forEach((cat, ci) =>
+          cat.beliefs.forEach((b, bi) => {
+            if (!found && (norm(b.text).includes(m) || m.includes(norm(b.text)))) found = `b${ci}-${bi}`
+          }),
+        )
+        if (found) ep.beliefId = found
+      }
+      if (typeof a.action === 'string' && a.action.trim()) ep.action = a.action.trim()
+      writeLS(ROLES_KEY, [ep, ...eps])
+      return { ok: true, text: `эпизод в треугольнике (роль: ${roleById(role).name}): «${cut(text)}»` }
     }
     default:
       return { ok: false, text: `неизвестное действие: ${a.type}` }

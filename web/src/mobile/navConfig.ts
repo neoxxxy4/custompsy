@@ -3,6 +3,7 @@ import { writeLS } from '../lib/sync'
 import {
   Bot,
   Brain,
+  Drama,
   Flame,
   Flower2,
   Heart,
@@ -36,6 +37,7 @@ export type MTab =
   | 'psysoc'
   | 'beliefs'
   | 'needs'
+  | 'roles'
   | 'aichat'
 
 export interface NavItem {
@@ -71,6 +73,7 @@ export const TOOL_META: Record<
   psysoc: { label: 'Социум', icon: HeartHandshake },
   beliefs: { label: 'Убеждения', icon: Brain },
   needs: { label: 'Потребности', icon: Flame },
+  roles: { label: 'Роли', icon: Drama },
   aichat: { label: 'ИИ-чат', icon: Bot },
 }
 
@@ -115,6 +118,7 @@ export const DEFAULT_TABS: AppTab[] = [
           { id: 'social', label: 'Социум IQ' },
           { id: 'beliefs', label: 'Убеждения' },
           { id: 'needs', label: 'Потребности' },
+          { id: 'roles', label: 'Роли' },
           { id: 'notes', label: 'Заметки' },
         ],
       },
